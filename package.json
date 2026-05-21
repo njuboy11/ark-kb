@@ -1,0 +1,38 @@
+{
+  "name": "ark-kb",
+  "version": "0.1.0",
+  "description": "🏛️ Ark Knowledge Base — 基于 LanceDB + 多模态 Embedding 的个人知识库系统",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node index.js"
+  },
+  "keywords": [
+    "openclaw",
+    "knowledge-base",
+    "rag",
+    "lancedb",
+    "vector-search",
+    "multimodal",
+    "qwen",
+    "embeddings"
+  ],
+  "author": "njuboy11",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/njuboy11/ark-kb.git"
+  },
+  "bugs": {
+    "url": "https://github.com/njuboy11/ark-kb/issues"
+  },
+  "homepage": "https://github.com/njuboy11/ark-kb#readme",
+  "dependencies": {
+    "@lancedb/lancedb": "^0.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.9.3"
+  }
+}

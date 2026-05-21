@@ -1,0 +1,63 @@
+{
+  "$schema": "https://openclaw.ai/schemas/plugin.schema.json",
+  "id": "@njuboy11/ark-kb",
+  "name": "ark-kb",
+  "version": "0.1.0",
+  "description": "🏛️ Ark Knowledge Base — LanceDB + 多模态 Embedding 知识库系统",
+  "author": "njuboy11",
+  "license": "MIT",
+  "entry": "./index.js",
+  "contracts": {
+    "tools": true
+  },
+  "tools": [
+    "kb_search",
+    "kb_ingest",
+    "kb_remove",
+    "kb_status"
+  ],
+  "config": {
+    "properties": {
+      "knowledgePath": {
+        "type": "string",
+        "description": "知识库文件夹路径",
+        "default": ""
+      },
+      "embeddingModel": {
+        "type": "string",
+        "description": "Embedding 模型名称",
+        "default": "Qwen3-VL-Embedding-8B"
+      },
+      "vectorDim": {
+        "type": "number",
+        "description": "向量维度",
+        "default": 4096
+      },
+      "enableWatcher": {
+        "type": "boolean",
+        "description": "启用文件监听自动索引",
+        "default": true
+      },
+      "rerankerEnabled": {
+        "type": "boolean",
+        "description": "启用 Reranker 精排",
+        "default": false
+      },
+      "searchTopK": {
+        "type": "number",
+        "description": "粗排召回数量",
+        "default": 20
+      },
+      "rerankerMinScore": {
+        "type": "number",
+        "description": "Reranker 最低分过滤",
+        "default": 0.35
+      },
+      "resultCount": {
+        "type": "number",
+        "description": "最终返回结果数量",
+        "default": 6
+      }
+    }
+  }
+}
