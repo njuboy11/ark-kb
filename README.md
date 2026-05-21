@@ -148,7 +148,7 @@ npx ark-kb search "login page design"
 
 ## 📝 License
 
-MIT © [njuboy11](https://github.com/njuboy11)
+GPL v3 © [njuboy11](https://github.com/njuboy11)
 
 ---
 
