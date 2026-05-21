@@ -1,6 +1,6 @@
 /**
  * Ark KB — Tool Registration
- * 向 OpenClaw 注册 kb_search / kb_ingest / kb_remove / kb_status 等工具
+ * Registers kb_search, kb_ingest, kb_remove, kb_status tools.
  */
 
 import { ArkKB } from "./index.js";
@@ -9,31 +9,29 @@ import { ArkKB } from "./index.js";
 // Tool Registration
 // ============================================================================
 
-/**
- * 注册 ark-kb 工具到 OpenClaw
- */
 export function registerKBTools(ark: ArkKB) {
   return [
     // ====================================================================
-    // kb_search — 知识库语义搜索
+    // kb_search — Knowledge base semantic search
     // ====================================================================
     {
       name: "kb_search",
       description:
-        "Search the knowledge base using semantic search. Supports text and images (multimodal). " +
-        "Returns relevant chunks with source file paths and linked images. " +
+        "Search the knowledge base using hybrid BM25 + vector semantic search. " +
+        "Supports text and images. Returns relevant chunks with source paths and images. " +
         "Use when the user asks to find something in their knowledge base documents or images.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Search query — describe what you're looking for naturally. " +
-              "E.g. 'the login page UI design', 'JWT authentication flow', 'Q2 planning document'.",
+            description:
+              "Search query — describe naturally what you are looking for. " +
+              "E.g. 'the login page UI design', 'JWT authentication flow', 'Q2 product planning'.",
           },
           count: {
             type: "number",
-            description: "Number of results to return (1-20, default: 6)",
+            description: "Number of results to return (1-20, default: 6).",
             default: 6,
           },
         },
@@ -41,9 +39,7 @@ export function registerKBTools(ark: ArkKB) {
       },
       async execute(_toolCallId: string, params: { query: string; count?: number }) {
         try {
-          const results = await ark.search(params.query, {
-            resultCount: params.count ?? 6,
-          });
+          const results = await ark.search(params.query, { resultCount: params.count ?? 6 });
 
           if (results.length === 0) {
             return {
@@ -51,7 +47,6 @@ export function registerKBTools(ark: ArkKB) {
             };
           }
 
-          // Format results with source tracking
           const resultText = results
             .map(
               (r: any, i: number) =>
@@ -63,7 +58,6 @@ export function registerKBTools(ark: ArkKB) {
 
           return {
             content: [{ type: "text" as const, text: resultText }],
-            // Also return raw data for programmatic use
             data: {
               results: results.map((r: any) => ({
                 score: r.score,
@@ -85,21 +79,21 @@ export function registerKBTools(ark: ArkKB) {
     },
 
     // ====================================================================
-    // kb_ingest — 手动触发文件索引
+    // kb_ingest — Manually trigger file indexing
     // ====================================================================
     {
       name: "kb_ingest",
       description:
         "Manually trigger indexing of a file or all files in the knowledge base folder. " +
-        "Use when you've added or modified files and want immediate indexing without waiting for the file watcher.",
+        "Use when files have been added or modified and you want immediate indexing without waiting for the file watcher.",
       parameters: {
         type: "object",
         properties: {
           filePath: {
             type: "string",
             description:
-              "Optional: specific file path (relative to knowledge base folder) to index. " +
-              "Omit to re-index all files in the knowledge base folder.",
+              "Optional: specific file path (relative to knowledge base root) to index. " +
+              "Omit to re-index all files.",
           },
         },
       },
@@ -116,8 +110,7 @@ export function registerKBTools(ark: ArkKB) {
               ],
             };
           } else {
-            // Re-index all — use the ingester
-            const result = await ark.ingester.ingestDirectory(ark.config.knowledgePath);
+            const result = await ark.ingestDirectory();
             return {
               content: [
                 {
@@ -136,20 +129,21 @@ export function registerKBTools(ark: ArkKB) {
     },
 
     // ====================================================================
-    // kb_remove — 从知识库移除文件索引
+    // kb_remove — Remove file index
     // ====================================================================
     {
       name: "kb_remove",
       description:
         "Remove a file's indexed chunks from the knowledge base. " +
-        "Use when you've deleted a file and the auto-watcher didn't catch it, " +
+        "Use when a file has been deleted and the watcher didn't catch it, " +
         "or when you want to manually purge a file's data.",
       parameters: {
         type: "object",
         properties: {
           sourcePath: {
             type: "string",
-            description: "Source file path (basename, e.g. 'product-manual.pdf') to remove from index.",
+            description:
+              "Source file path (basename, e.g. 'product-manual.pdf') to remove from index.",
           },
         },
         required: ["sourcePath"],
@@ -174,13 +168,13 @@ export function registerKBTools(ark: ArkKB) {
     },
 
     // ====================================================================
-    // kb_status — 知识库状态概览
+    // kb_status — Knowledge base status overview
     // ====================================================================
     {
       name: "kb_status",
       description:
         "Show knowledge base status: total chunks, indexed files, and configuration summary. " +
-        "Use to check if the knowledge base is healthy and what files are indexed.",
+        "Use to check if the knowledge base is healthy and which files are indexed.",
       parameters: {
         type: "object",
         properties: {},
@@ -198,9 +192,12 @@ export function registerKBTools(ark: ArkKB) {
                   `- Indexed files: ${sources.length}\n` +
                   `- Files: ${sources.join(", ") || "(empty)"}\n` +
                   `- Knowledge path: ${ark.config.knowledgePath}\n` +
-                  `- Embedding model: ${ark.config.embeddingModel} (${ark.config.vectorDim}d)\n` +
-                  `- Reranker: ${ark.config.rerankerEnabled ? "enabled" : "disabled"}\n` +
-                  `- File watcher: ${ark.config.enableWatcher ? "active" : "inactive"}`,
+                  `- Embedding model: ${ark.config.embedding.model} (${ark.config.embedding.dimensions}d)\n` +
+                  `- Embedding API: ${ark.config.embedding.api}\n` +
+                  `- Reranker: ${ark.config.reranker.api}\n` +
+                  `- File watcher: ${ark.config.watcher.enabled ? "active" : "inactive"}\n` +
+                  `- BM25: ${ark.config.search.bm25Enabled ? "enabled" : "disabled"}\n` +
+                  `  (vector weight: ${ark.config.search.vectorWeight})`,
               },
             ],
           };

@@ -1,12 +1,13 @@
 /**
  * Ark KB — Searcher
- * 语义搜索 + 可选的 Reranker 精排
+ * Hybrid BM25 + vector search with optional reranking.
  */
 
-import { KnowledgeStore, KBSearchResult, KBEntry } from "./store.js";
-import { Embedder } from "./embedder.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { KnowledgeStore, KBEntry, KBSearchResult } from "./store.js";
+import { Embedder } from "./embedder.js";
+import type { ResolvedConfig } from "./config.js";
 
 // ============================================================================
 // Types
@@ -14,10 +15,12 @@ import { join } from "node:path";
 
 export interface SearchOptions {
   query: string;
-  topK: number;
-  rerankerEnabled: boolean;
-  rerankerMinScore: number;
-  resultCount: number;
+  topK?: number;
+  resultCount?: number;
+  vectorWeight?: number;
+  bm25Enabled?: boolean;
+  rerankerEnabled?: boolean;
+  rerankerMinScore?: number;
 }
 
 export interface SearchResult {
@@ -42,37 +45,53 @@ export interface SourceContent {
 export class Searcher {
   private store: KnowledgeStore;
   private embedder: Embedder;
-  private knowledgePath: string;
+  private config: ResolvedConfig;
 
-  constructor(
-    store: KnowledgeStore,
-    embedder: Embedder,
-    knowledgePath: string,
-  ) {
+  constructor(store: KnowledgeStore, embedder: Embedder, config: ResolvedConfig) {
     this.store = store;
     this.embedder = embedder;
-    this.knowledgePath = knowledgePath;
+    this.config = config;
   }
 
   async search(options: SearchOptions): Promise<SearchResult[]> {
-    // 1. 将 query 转成向量
+    const topK = options.topK ?? this.config.search.topK;
+    const resultCount = options.resultCount ?? this.config.search.resultCount;
+    const vectorWeight = options.vectorWeight ?? this.config.search.vectorWeight;
+    const bm25Enabled = options.bm25Enabled ?? this.config.search.bm25Enabled;
+
+    // 1. Embed the query
     const [queryVector] = await this.embedder.embed(options.query);
 
-    // 2. LanceDB 近似近邻搜索
-    const rawResults = await this.store.search(queryVector, options.topK);
+    // 2. Run vector search and BM25 in parallel
+    const [vectorResults, bm25Results] = await Promise.all([
+      this.store.vectorSearch(queryVector, topK),
+      bm25Enabled ? this.store.bm25Search(options.query, topK) : Promise.resolve([]),
+    ]);
 
-    // 3. 可选：Reranker 精排
-    let results: KBSearchResult[];
-    if (options.rerankerEnabled) {
-      results = await this.applyReranker(rawResults, options.query, options.rerankerMinScore);
+    // 3. Fuse results
+    let fused: KBSearchResult[];
+    const fusionMethod = this.config.search.fusionMethod;
+    if (bm25Enabled && bm25Results.length > 0) {
+      fused = this.store.fuseResults(vectorResults, bm25Results, vectorWeight, fusionMethod);
     } else {
-      results = rawResults;
+      fused = vectorResults;
     }
 
-    // 4. 取 top N
-    return results.slice(0, options.resultCount).map((r) => ({
+    // 4. Optional reranker
+    let results: KBSearchResult[];
+    if (options.rerankerEnabled && fused.length > 0) {
+      results = await this.applyReranker(fused, options.query);
+      // Filter by min score
+      const minScore = options.rerankerMinScore ?? this.config.reranker.minScore;
+      results = results.filter((r) => r.score >= minScore);
+    } else {
+      results = fused;
+    }
+
+    // 5. Return top N
+    return results.slice(0, resultCount).map((r) => ({
       score: r.score,
-      chunk_text: r.entry.chunk_text.substring(0, 500), // 预览
+      chunk_text: r.entry.chunk_text.slice(0, 500),
       source_path: r.entry.source_path,
       chunk_index: r.entry.chunk_index,
       total_chunks: r.entry.total_chunks,
@@ -82,10 +101,10 @@ export class Searcher {
   }
 
   /**
-   * 获取搜索结果的完整原文
+   * Read the full content of a source file.
    */
   async getSource(sourcePath: string): Promise<SourceContent | null> {
-    const fullPath = join(this.knowledgePath, sourcePath);
+    const fullPath = join(this.config.knowledgePath, sourcePath);
     try {
       const full_text = await readFile(fullPath, "utf-8");
       return { source_path: sourcePath, full_text };
@@ -94,62 +113,68 @@ export class Searcher {
     }
   }
 
-  /**
-   * Reranker 精排（BGE-m3 或其他 cross-encoder）
-   */
+  // ========================================================================
+  // Reranker
+  // ========================================================================
+
   private async applyReranker(
     results: KBSearchResult[],
     query: string,
-    minScore: number,
   ): Promise<KBSearchResult[]> {
     if (results.length === 0) return [];
 
-    // Reranker API 调用
-    const pairs = results.map((r) => ({
-      query,
-      passage: r.entry.chunk_text,
-    }));
+    const rerankerApi = this.config.reranker.api;
+    if (rerankerApi === "none") {
+      return results;
+    }
+
+    const endpoint = this.config.reranker.endpoint;
+    const apiKey = this.config.reranker.apiKey;
+    const model = this.config.reranker.model;
+
+    if (!apiKey) {
+      console.warn("[Ark KB] Reranker API key not configured, skipping reranker");
+      return results;
+    }
 
     try {
-      const response = await fetch("https://api.siliconflow.cn/v1/rerank", {
+      const documents = results.map((r) => r.entry.chunk_text);
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${getRerankerKey()}`,
+          "Authorization": `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "BAAI/bge-m3",
+          model,
           query,
-          documents: results.map((r) => r.entry.chunk_text),
+          documents,
           return_documents: false,
         }),
       });
 
       if (!response.ok) {
-        console.warn("[Ark KB] Reranker 调用失败，回退到原始排序");
+        const err = await response.text();
+        console.warn(`[Ark KB] Reranker API error (${response.status}): ${err}`);
         return results;
       }
 
-      const data = (await response.json()) as any;
+      const data = await response.json() as any;
 
-      if (data.results && Array.isArray(data.results)) {
-        const scored = data.results.map((r: any) => ({
-          entry: results[r.index].entry,
-          score: r.relevance_score,
-        }));
-        return scored
-          .filter((r: any) => r.score >= minScore)
+      if (Array.isArray(data.results)) {
+        return data.results
+          .map((r: any) => ({
+            entry: results[r.index].entry,
+            score: r.relevance_score ?? r.score ?? 0,
+          }))
           .sort((a: any, b: any) => b.score - a.score);
       }
+
     } catch (err) {
-      console.warn("[Ark KB] Reranker 异常，回退到原始排序:", err);
+      console.warn("[Ark KB] Reranker exception:", err);
     }
 
     return results;
   }
-}
-
-function getRerankerKey(): string {
-  // 从环境变量读取（由 OpenClaw 配置注入）
-  return process.env.ARK_KB_RERANKER_KEY || "";
 }

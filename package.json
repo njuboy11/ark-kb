@@ -1,6 +1,7 @@
 {
   "name": "ark-kb",
   "version": "0.1.0",
+  "type": "module",
   "description": "🏛️ Ark Knowledge Base — Personal knowledge base powered by LanceDB + Multimodal Embedding (Qwen3-VL-8B)",
   "main": "index.js",
   "scripts": {

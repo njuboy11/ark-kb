@@ -1,39 +1,44 @@
 /**
  * Ark KB — File Watcher
- * 文件系统监听：新增/修改/删除自动触发索引更新
+ * Recursively watches a directory for file changes and triggers re-indexing.
  */
 
 import { watch, FSWatcher } from "node:fs";
 import { stat } from "node:fs/promises";
-import { extname, basename } from "node:path";
+import { basename } from "node:path";
 
 export type FileEvent = "add" | "change" | "unlink";
-
-export type FileEventHandler = (
-  event: FileEvent,
-  filePath: string,
-) => Promise<void>;
+export type FileEventHandler = (event: FileEvent, filePath: string) => Promise<void>;
 
 export class FileWatcher {
   private watcher: FSWatcher | null = null;
   private handler: FileEventHandler | null = null;
   private debounceTimers = new Map<string, NodeJS.Timeout>();
   private fileSizes = new Map<string, number>();
-  private watchPath: string = "";
+  private watchPath = "";
+  private debounceMs = 2000;
+  private ignorePatterns: string[] = [];
 
-  start(watchPath: string, handler: FileEventHandler): void {
+  start(
+    watchPath: string,
+    handler: FileEventHandler,
+    debounceMs = 2000,
+    ignorePatterns: string[] = [],
+  ): void {
     this.watchPath = watchPath;
     this.handler = handler;
+    this.debounceMs = debounceMs;
+    this.ignorePatterns = ignorePatterns;
 
     this.watcher = watch(watchPath, { recursive: true }, async (event, filename) => {
-      if (!filename) return;
+      if (!filename || !this.handler) return;
+
       const filePath = `${watchPath}/${filename}`;
 
-      // 忽略隐藏文件、临时文件、目录
-      if (shouldIgnore(filename)) return;
+      if (shouldIgnore(basename(filename), this.ignorePatterns)) return;
 
       if (event === "rename") {
-        // rename 可能是新建或删除
+        // "rename" fires for both new files and deleted files
         let exists = false;
         try {
           const s = await stat(filePath);
@@ -43,62 +48,59 @@ export class FileWatcher {
         }
 
         if (exists) {
-          // 新文件到达（或重命名进来的文件）
-          await this.debounce("add", filePath, handler);
+          await this.debouncedHandle("add", filePath);
         } else {
-          // 文件被删除
-          await handler("unlink", filePath);
+          await this.handler("unlink", filePath);
         }
       } else if (event === "change") {
-        // 文件内容变更
-        await this.debounce("change", filePath, handler);
+        await this.debouncedHandle("change", filePath);
       }
     });
 
-    console.log(`[Ark KB] 文件监听已启动: ${watchPath}`);
+    console.log(`[Ark KB] File watcher started: ${watchPath}`);
   }
 
-  private async debounce(
-    event: FileEvent,
-    filePath: string,
-    handler: FileEventHandler,
-  ): Promise<void> {
-    // 清除上一次的定时器
+  private async debouncedHandle(event: FileEvent, filePath: string): Promise<void> {
+    // Cancel any pending timer for this file
     const existing = this.debounceTimers.get(filePath);
-    if (existing) clearTimeout(existing);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      this.debounceTimers.delete(filePath);
+    }
 
-    // 如果是 change 事件，检查文件是否写完
-    if (event === "change" || event === "add") {
+    // If file exists and this is an add/change, wait for write to stabilize
+    if (event === "add" || event === "change") {
       try {
         const s = await stat(filePath);
         const prevSize = this.fileSizes.get(filePath) ?? -1;
+        this.fileSizes.set(filePath, s.size);
+
         if (prevSize === s.size && s.size > 0) {
-          // 文件尺寸稳定了，直接触发
+          // File size hasn't changed — content is stable, trigger now
           this.debounceTimers.delete(filePath);
-          await handler(event, filePath);
+          await this.handler!("change", filePath);
           return;
         }
-        this.fileSizes.set(filePath, s.size);
       } catch {
-        // 文件可能已被删除
+        // File no longer exists
         this.debounceTimers.delete(filePath);
         return;
       }
     }
 
-    // 等 2 秒再看是否稳定
+    // Set a new debounce timer
     const timer = setTimeout(async () => {
       this.debounceTimers.delete(filePath);
 
-      // 最终确认文件仍然存在
+      // Final existence check
       try {
         await stat(filePath);
       } catch {
-        return; // 文件已不在了
+        return; // File was deleted before timer fired
       }
 
-      await handler(event, filePath);
-    }, 2000);
+      await this.handler!(event, filePath);
+    }, this.debounceMs);
 
     this.debounceTimers.set(filePath, timer);
   }
@@ -113,17 +115,23 @@ export class FileWatcher {
     }
     this.debounceTimers.clear();
     this.fileSizes.clear();
-    console.log("[Ark KB] 文件监听已停止");
+    console.log("[Ark KB] File watcher stopped");
   }
 }
 
-function shouldIgnore(filename: string): boolean {
+/**
+ * Check if a filename matches any of the given ignore patterns.
+ * Supports glob-style patterns: *.tmp, ~*, .*, etc.
+ */
+function shouldIgnore(filename: string, patterns: string[]): boolean {
   const base = basename(filename);
-  // 忽略隐藏文件、临时文件、Office 临时文件
-  if (base.startsWith(".")) return true;
-  if (base.startsWith("~")) return true;
-  if (base.endsWith(".tmp")) return true;
-  if (base.endsWith(".swp")) return true;
-  if (base.endsWith(".part")) return true;
+
+  for (const pattern of patterns) {
+    if (pattern.startsWith("*.") && base.endsWith(pattern.slice(1))) return true;
+    if (pattern.endsWith("*") && base.startsWith(pattern.slice(0, -1))) return true;
+    if (pattern.startsWith(".") && base.startsWith(".")) return true;
+    if (base === pattern) return true;
+  }
+
   return false;
 }

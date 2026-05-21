@@ -1,15 +1,18 @@
 /**
  * Ark KB — Searcher
- * 语义搜索 + 可选的 Reranker 精排
+ * Hybrid BM25 + vector search with optional reranking.
  */
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
+import type { ResolvedConfig } from "./config.js";
 export interface SearchOptions {
     query: string;
-    topK: number;
-    rerankerEnabled: boolean;
-    rerankerMinScore: number;
-    resultCount: number;
+    topK?: number;
+    resultCount?: number;
+    vectorWeight?: number;
+    bm25Enabled?: boolean;
+    rerankerEnabled?: boolean;
+    rerankerMinScore?: number;
 }
 export interface SearchResult {
     score: number;
@@ -27,16 +30,13 @@ export interface SourceContent {
 export declare class Searcher {
     private store;
     private embedder;
-    private knowledgePath;
-    constructor(store: KnowledgeStore, embedder: Embedder, knowledgePath: string);
+    private config;
+    constructor(store: KnowledgeStore, embedder: Embedder, config: ResolvedConfig);
     search(options: SearchOptions): Promise<SearchResult[]>;
     /**
-     * 获取搜索结果的完整原文
+     * Read the full content of a source file.
      */
     getSource(sourcePath: string): Promise<SourceContent | null>;
-    /**
-     * Reranker 精排（BGE-m3 或其他 cross-encoder）
-     */
     private applyReranker;
 }
 //# sourceMappingURL=searcher.d.ts.map

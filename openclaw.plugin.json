@@ -3,60 +3,176 @@
   "id": "@njuboy11/ark-kb",
   "name": "ark-kb",
   "version": "0.1.0",
-  "description": "🏛️ Ark Knowledge Base — Personal knowledge base powered by LanceDB + Multimodal Embedding",
+  "description": "Ark Knowledge Base — LanceDB + Multimodal Embedding personal knowledge base with BM25+vector hybrid search",
   "author": "njuboy11",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "entry": "./index.js",
   "contracts": {
     "tools": true
   },
-  "tools": [
-    "kb_search",
-    "kb_ingest",
-    "kb_remove",
-    "kb_status"
-  ],
-  "config": {
+  "tools": ["kb_search", "kb_ingest", "kb_remove", "kb_status"],
+  "configSchema": {
+    "type": "object",
     "properties": {
       "knowledgePath": {
         "type": "string",
-        "description": "Knowledge base folder path",
-        "default": ""
+        "default": "",
+        "description": "Root folder to index (absolute path)"
       },
-      "embeddingModel": {
-        "type": "string",
-        "description": "Embedding model name",
-        "default": "Qwen3-VL-Embedding-8B"
+      "storage": {
+        "type": "object",
+        "properties": {
+          "dbPath": {
+            "type": "string",
+            "default": "~/.ark-kb/lancedb",
+            "description": "LanceDB database storage path"
+          }
+        }
       },
-      "vectorDim": {
-        "type": "number",
-        "description": "Vector dimension",
-        "default": 4096
+      "embedding": {
+        "type": "object",
+        "properties": {
+          "api": {
+            "type": "string",
+            "enum": ["qwen3-vl", "openai", "custom"],
+            "default": "qwen3-vl"
+          },
+          "endpoint": {
+            "type": "string",
+            "default": "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"
+          },
+          "apiKey": {
+            "type": "string",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "default": "Qwen3-VL-Embedding-8B"
+          },
+          "dimensions": {
+            "type": "number",
+            "default": 4096
+          },
+          "batchSize": {
+            "type": "number",
+            "default": 8
+          }
+        }
       },
-      "enableWatcher": {
-        "type": "boolean",
-        "description": "Enable file watcher for auto indexing",
-        "default": true
+      "reranker": {
+        "type": "object",
+        "properties": {
+          "api": {
+            "type": "string",
+            "enum": ["siliconflow", "cohere", "none"],
+            "default": "none"
+          },
+          "endpoint": {
+            "type": "string",
+            "default": "https://api.siliconflow.cn/v1/rerank"
+          },
+          "apiKey": {
+            "type": "string",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "default": "BAAI/bge-reranker-v2-m3"
+          },
+          "minScore": {
+            "type": "number",
+            "default": 0.35
+          }
+        }
       },
-      "rerankerEnabled": {
-        "type": "boolean",
-        "description": "Enable reranker for precision sorting",
-        "default": false
+      "pdfParser": {
+        "type": "object",
+        "properties": {
+          "api": {
+            "type": "string",
+            "enum": ["mineru", "builtin", "none"],
+            "default": "none"
+          },
+          "endpoint": {
+            "type": "string",
+            "default": ""
+          },
+          "apiKey": {
+            "type": "string",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "default": "precise-v4"
+          }
+        }
       },
-      "searchTopK": {
-        "type": "number",
-        "description": "Initial recall count",
-        "default": 20
+      "search": {
+        "type": "object",
+        "properties": {
+          "vectorWeight": {
+            "type": "number",
+            "default": 0.7,
+            "minimum": 0,
+            "maximum": 1
+          },
+          "topK": {
+            "type": "number",
+            "default": 20
+          },
+          "resultCount": {
+            "type": "number",
+            "default": 6
+          },
+          "bm25Enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "fusionMethod": {
+            "type": "string",
+            "enum": ["min_max", "z_score", "rrf", "raw"],
+            "default": "min_max",
+            "description": "Score fusion method: min_max (normalize each to [0,1]), z_score (standardize), rrf (reciprocal rank), raw (weighted raw)"
+          }
+        }
       },
-      "rerankerMinScore": {
-        "type": "number",
-        "description": "Reranker minimum score threshold",
-        "default": 0.35
+      "chunking": {
+        "type": "object",
+        "properties": {
+          "maxTokens": {
+            "type": "number",
+            "default": 400
+          },
+          "overlapTokens": {
+            "type": "number",
+            "default": 50
+          },
+          "strategy": {
+            "type": "string",
+            "enum": ["paragraph", "fixed", "sentence"],
+            "default": "paragraph"
+          }
+        }
       },
-      "resultCount": {
-        "type": "number",
-        "description": "Final result count",
-        "default": 6
+      "watcher": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "debounceMs": {
+            "type": "number",
+            "default": 2000
+          },
+          "ignorePatterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [".*", "~*", "*.tmp", "*.swp", "*.part"]
+          }
+        }
       }
     }
   }

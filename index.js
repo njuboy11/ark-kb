@@ -1,30 +1,19 @@
 /**
  * Ark KB — Main Entry
- * 🏛️ Ark Knowledge Base — 基于 LanceDB + 多模态 Embedding 的个人知识库
+ * Initializes and wires together Store, Embedder, Ingester, Searcher, and Watcher.
  */
-import { join } from "node:path";
-import { registerKBTools } from "./tools.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { Ingester } from "./ingester.js";
 import { Searcher } from "./searcher.js";
 import { FileWatcher } from "./watcher.js";
-export const DEFAULTS = {
-    dbPath: join(homedir(), ".ark-kb", "lancedb"),
-    embeddingApiUrl: "https://api.siliconflow.cn/v1/embeddings",
-    embeddingApiKey: "",
-    embeddingModel: "Qwen3-VL-Embedding-8B",
-    vectorDim: 4096,
-    enableWatcher: true,
-    rerankerEnabled: false,
-    searchTopK: 20,
-    rerankerMinScore: 0.35,
-    resultCount: 6,
-};
+import { resolveConfig } from "./config.js";
+import { registerKBTools } from "./tools.js";
 // ============================================================================
-// ArkKB — 主入口类
+// ArkKB
 // ============================================================================
 export class ArkKB {
     store;
@@ -35,71 +24,88 @@ export class ArkKB {
     config;
     initialized = false;
     constructor(config) {
-        this.config = { ...DEFAULTS, ...config };
-        // 确保路径存在
-        if (!existsSync(this.config.knowledgePath)) {
-            mkdirSync(this.config.knowledgePath, { recursive: true });
+        this.config = resolveConfig(config);
+        // Expand ~ in paths
+        const dbPath = expandPath(this.config.storage.dbPath);
+        const knowledgePath = this.config.knowledgePath;
+        // Ensure directories exist
+        if (knowledgePath && !existsSync(knowledgePath)) {
+            mkdirSync(knowledgePath, { recursive: true });
         }
-        const dbDir = this.config.dbPath ? dir(this.config.dbPath) : join(homedir(), ".ark-kb");
-        if (!existsSync(dbDir)) {
-            mkdirSync(dbDir, { recursive: true });
+        if (!existsSync(dbPath)) {
+            mkdirSync(dbPath, { recursive: true });
         }
-        // 核心组件
+        // Wire up components
         this.store = new KnowledgeStore({
-            dbPath: this.config.dbPath,
-            vectorDim: this.config.vectorDim,
+            dbPath,
+            vectorDim: this.config.embedding.dimensions,
         });
         this.embedder = new Embedder({
-            apiUrl: this.config.embeddingApiUrl,
-            apiKey: this.config.embeddingApiKey,
-            model: this.config.embeddingModel,
-            dimensions: this.config.vectorDim,
+            api: this.config.embedding.api,
+            endpoint: this.config.embedding.endpoint,
+            apiKey: this.config.embedding.apiKey,
+            model: this.config.embedding.model,
+            dimensions: this.config.embedding.dimensions,
+            batchSize: this.config.embedding.batchSize,
         });
-        this.ingester = new Ingester(this.store, this.embedder);
-        this.searcher = new Searcher(this.store, this.embedder, this.config.knowledgePath);
+        this.ingester = new Ingester(this.store, this.embedder, this.config);
+        this.searcher = new Searcher(this.store, this.embedder, this.config);
         this.watcher = new FileWatcher();
     }
     async init() {
         if (this.initialized)
             return;
-        // 1. 初始化 LanceDB
-        console.log("[Ark KB] 初始化 LanceDB...");
+        // 1. Initialize LanceDB
+        console.log("[Ark KB] Initializing LanceDB...");
         await this.store.init();
-        // 2. 扫描已有文件
-        console.log("[Ark KB] 扫描知识库文件夹...");
-        const { total, files } = await this.ingester.ingestDirectory(this.config.knowledgePath);
-        console.log(`[Ark KB] 已索引 ${files} 文件，共 ${total} 个 chunk`);
-        // 3. 启动文件监听
-        if (this.config.enableWatcher) {
-            this.watcher.start(this.config.knowledgePath, async (event, filePath) => {
-                if (event === "add" || event === "change") {
-                    await this.ingester.ingestFile(filePath);
-                }
-                else if (event === "unlink") {
-                    const base = filePath.split("/").pop() || filePath;
-                    const deleted = await this.store.deleteBySource(base);
-                    console.log(`[Ark KB] 已清理: ${base} (${deleted} chunks)`);
-                }
-            });
+        // 2. Ingest knowledge directory
+        if (this.config.knowledgePath) {
+            console.log("[Ark KB] Ingesting knowledge directory...");
+            const { total, files } = await this.ingester.ingestDirectory(this.config.knowledgePath);
+            console.log(`[Ark KB] Indexed ${files} files, ${total} chunks total`);
+            // 3. Start file watcher
+            if (this.config.watcher.enabled) {
+                this.watcher.start(this.config.knowledgePath, async (event, filePath) => {
+                    if (event === "add" || event === "change") {
+                        await this.ingester.ingestFile(filePath);
+                    }
+                    else if (event === "unlink") {
+                        const base = filePath.split("/").pop() ?? filePath;
+                        const deleted = await this.store.deleteBySource(base);
+                        console.log(`[Ark KB] Removed: ${base} (${deleted} chunks)`);
+                    }
+                }, this.config.watcher.debounceMs, this.config.watcher.ignorePatterns);
+                console.log(`[Ark KB] File watcher active: ${this.config.knowledgePath}`);
+            }
+        }
+        else {
+            console.log("[Ark KB] No knowledgePath configured; skipping auto-ingest and watcher.");
         }
         this.initialized = true;
-        console.log(`[Ark KB] ✅ 知识库就绪 (${total} chunks, ${files} 文件)`);
+        console.log("[Ark KB] Ready.");
     }
     // ========================================================================
-    // 对外接口
+    // Public API
     // ========================================================================
     async search(query, options) {
-        const searchOptions = {
+        return await this.searcher.search({
             query,
-            topK: options?.topK ?? this.config.searchTopK,
-            rerankerEnabled: options?.rerankerEnabled ?? this.config.rerankerEnabled,
-            rerankerMinScore: options?.rerankerMinScore ?? this.config.rerankerMinScore,
-            resultCount: options?.resultCount ?? this.config.resultCount,
-        };
-        return await this.searcher.search(searchOptions);
+            topK: options?.topK ?? this.config.search.topK,
+            resultCount: options?.resultCount ?? this.config.search.resultCount,
+            vectorWeight: options?.vectorWeight ?? this.config.search.vectorWeight,
+            bm25Enabled: options?.bm25Enabled ?? this.config.search.bm25Enabled,
+            rerankerEnabled: options?.rerankerEnabled ?? (this.config.reranker.api !== "none"),
+            rerankerMinScore: options?.rerankerMinScore ?? this.config.reranker.minScore,
+        });
     }
     async ingestFile(filePath) {
         return await this.ingester.ingestFile(filePath);
+    }
+    async ingestDirectory() {
+        if (!this.config.knowledgePath) {
+            return { total: 0, files: 0 };
+        }
+        return await this.ingester.ingestDirectory(this.config.knowledgePath);
     }
     async removeSource(sourcePath) {
         return await this.store.deleteBySource(sourcePath);
@@ -114,17 +120,22 @@ export class ArkKB {
     async shutdown() {
         this.watcher.stop();
         await this.store.close();
-        console.log("[Ark KB] 已关闭");
+        console.log("[Ark KB] Shutdown complete.");
     }
     /**
-     * 获取 OpenClaw 工具注册列表
+     * Returns the tool registration array for OpenClaw.
      */
     getTools() {
         return registerKBTools(this);
     }
 }
-function dir(p) {
-    const i = p.lastIndexOf("/");
-    return i >= 0 ? p.slice(0, i) : ".";
+// ============================================================================
+// Helpers
+// ============================================================================
+function expandPath(p) {
+    if (p.startsWith("~/")) {
+        return join(homedir(), p.slice(2));
+    }
+    return p;
 }
 //# sourceMappingURL=index.js.map

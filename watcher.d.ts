@@ -1,6 +1,6 @@
 /**
  * Ark KB — File Watcher
- * 文件系统监听：新增/修改/删除自动触发索引更新
+ * Recursively watches a directory for file changes and triggers re-indexing.
  */
 export type FileEvent = "add" | "change" | "unlink";
 export type FileEventHandler = (event: FileEvent, filePath: string) => Promise<void>;
@@ -10,8 +10,10 @@ export declare class FileWatcher {
     private debounceTimers;
     private fileSizes;
     private watchPath;
-    start(watchPath: string, handler: FileEventHandler): void;
-    private debounce;
+    private debounceMs;
+    private ignorePatterns;
+    start(watchPath: string, handler: FileEventHandler, debounceMs?: number, ignorePatterns?: string[]): void;
+    private debouncedHandle;
     stop(): void;
 }
 //# sourceMappingURL=watcher.d.ts.map

@@ -1,11 +1,8 @@
 /**
  * Ark KB — Tool Registration
- * 向 OpenClaw 注册 kb_search / kb_ingest / kb_remove / kb_status 等工具
+ * Registers kb_search, kb_ingest, kb_remove, kb_status tools.
  */
 import { ArkKB } from "./index.js";
-/**
- * 注册 ark-kb 工具到 OpenClaw
- */
 export declare function registerKBTools(ark: ArkKB): ({
     name: string;
     description: string;
@@ -38,10 +35,18 @@ export declare function registerKBTools(ark: ArkKB): ({
     } | {
         content: {
             type: "text";
-            text: any;
+            text: string;
         }[];
         data: {
-            results: any;
+            results: {
+                score: any;
+                chunk_text: any;
+                source_path: any;
+                chunk_index: any;
+                total_chunks: any;
+                images: any;
+                file_type: any;
+            }[];
         };
     }>;
 } | {
