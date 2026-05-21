@@ -2,6 +2,7 @@
  * Ark KB — Main Entry
  * 🏛️ Ark Knowledge Base — 基于 LanceDB + 多模态 Embedding 的个人知识库
  */
+import { registerKBTools } from "./tools.js";
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { Ingester } from "./ingester.js";
@@ -50,5 +51,9 @@ export declare class ArkKB {
         sources: string[];
     }>;
     shutdown(): Promise<void>;
+    /**
+     * 获取 OpenClaw 工具注册列表
+     */
+    getTools(): ReturnType<typeof registerKBTools>;
 }
 //# sourceMappingURL=index.d.ts.map

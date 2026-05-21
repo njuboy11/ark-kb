@@ -4,6 +4,7 @@
  */
 
 import { join } from "node:path";
+import { registerKBTools } from "./tools.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { KnowledgeStore } from "./store.js";
@@ -149,6 +150,13 @@ export class ArkKB {
     this.watcher.stop();
     await this.store.close();
     console.log("[Ark KB] 已关闭");
+  }
+
+  /**
+   * 获取 OpenClaw 工具注册列表
+   */
+  getTools(): ReturnType<typeof registerKBTools> {
+    return registerKBTools(this);
   }
 }
 
