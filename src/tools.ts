@@ -1,6 +1,6 @@
 /**
  * Ark KB — Tool Registration
- * Registers kb_search, kb_ingest, kb_remove, kb_status tools.
+ * Registers kb_search, kb_ingest, kb_remove, kb_status tools with OpenClaw.
  */
 
 import { ArkKB } from "./index.js";
@@ -11,55 +11,66 @@ import { ArkKB } from "./index.js";
 
 export function registerKBTools(ark: ArkKB) {
   return [
+
     // ====================================================================
-    // kb_search — Knowledge base semantic search
+    // kb_search — Hybrid semantic + keyword search
     // ====================================================================
     {
       name: "kb_search",
       description:
-        "Search the knowledge base using hybrid BM25 + vector semantic search. " +
-        "Supports text and images. Returns relevant chunks with source paths and images. " +
-        "Use when the user asks to find something in their knowledge base documents or images.",
+        "Search the knowledge base using hybrid vector + BM25 search with optional reranking. " +
+        "Supports text, images, and PDFs. " +
+        "Use when the user wants to find something in their personal knowledge base documents.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description:
-              "Search query — describe naturally what you are looking for. " +
-              "E.g. 'the login page UI design', 'JWT authentication flow', 'Q2 product planning'.",
+              "Natural language search query. E.g. 'login page design', 'JWT authentication flow', 'Q2 planning doc'.",
           },
           count: {
             type: "number",
-            description: "Number of results to return (1-20, default: 6).",
-            default: 6,
+            description: "Number of results to return (1-20, default: from config, typically 6).",
           },
         },
         required: ["query"],
       },
-      async execute(_toolCallId: string, params: { query: string; count?: number }) {
+
+      async execute(
+        _toolCallId: string,
+        params: { query: string; count?: number },
+      ) {
         try {
-          const results = await ark.search(params.query, { resultCount: params.count ?? 6 });
+          const results = await ark.search(params.query, {
+            resultCount: params.count,
+          });
 
           if (results.length === 0) {
             return {
-              content: [{ type: "text" as const, text: "No results found in knowledge base." }],
+              content: [
+                {
+                  type: "text" as const,
+                  text: "No results found in knowledge base.",
+                },
+              ],
             };
           }
 
           const resultText = results
             .map(
-              (r: any, i: number) =>
-                `[${i + 1}] (score: ${(r.score * 100).toFixed(1)}%) — from **${r.source_path}**\n` +
+              (r, i) =>
+                `[${i + 1}] (score: ${(r.score * 100).toFixed(1)}%) — **${r.source_path}** ` +
+                `(${r.chunk_index + 1}/${r.total_chunks})\n` +
                 `> ${r.chunk_text}\n` +
-                (r.images.length > 0 ? `   📎 Images: ${r.images.join(", ")}\n` : ""),
+                (r.images.length > 0 ? `  📎 Images: ${r.images.join(", ")}\n` : ""),
             )
             .join("\n---\n");
 
           return {
             content: [{ type: "text" as const, text: resultText }],
             data: {
-              results: results.map((r: any) => ({
+              results: results.map(r => ({
                 score: r.score,
                 chunk_text: r.chunk_text,
                 source_path: r.source_path,
@@ -70,33 +81,40 @@ export function registerKBTools(ark: ArkKB) {
               })),
             },
           };
-        } catch (err) {
+        } catch (err: any) {
           return {
-            content: [{ type: "text" as const, text: `Knowledge base search failed: ${err}` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `Search failed: ${err.message}`,
+              },
+            ],
           };
         }
       },
     },
 
     // ====================================================================
-    // kb_ingest — Manually trigger file indexing
+    // kb_ingest — Manually trigger indexing
     // ====================================================================
     {
       name: "kb_ingest",
       description:
         "Manually trigger indexing of a file or all files in the knowledge base folder. " +
-        "Use when files have been added or modified and you want immediate indexing without waiting for the file watcher.",
+        "Use when files have been added or modified and you want immediate indexing " +
+        "without waiting for the file watcher.",
       parameters: {
         type: "object",
         properties: {
           filePath: {
             type: "string",
             description:
-              "Optional: specific file path (relative to knowledge base root) to index. " +
-              "Omit to re-index all files.",
+              "Optional absolute or relative file path to index. " +
+              "Omit to re-index all files in the knowledge base folder.",
           },
         },
       },
+
       async execute(_toolCallId: string, params: { filePath?: string }) {
         try {
           if (params.filePath) {
@@ -105,37 +123,45 @@ export function registerKBTools(ark: ArkKB) {
               content: [
                 {
                   type: "text" as const,
-                  text: `Indexed: ${result.source} (${result.entries} chunks)`,
+                  text: `Indexed: ${result.source} (${result.entries} chunks)` +
+                    (result.skipped ? " [skipped - no change]" : ""),
                 },
               ],
             };
           } else {
-            const result = await ark.ingestDirectory();
+            const result = await ark.ingester.ingestDirectory(ark.config.knowledgePath);
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Re-indexed ${result.files} files, ${result.total} chunks total.`,
+                  text:
+                    `Re-indexed ${result.files} files, ${result.total} chunks total` +
+                    (result.errors > 0 ? ` (${result.errors} errors)` : ""),
                 },
               ],
             };
           }
-        } catch (err) {
+        } catch (err: any) {
           return {
-            content: [{ type: "text" as const, text: `Indexing failed: ${err}` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `Indexing failed: ${err.message}`,
+              },
+            ],
           };
         }
       },
     },
 
     // ====================================================================
-    // kb_remove — Remove file index
+    // kb_remove — Remove a source's indexed chunks
     // ====================================================================
     {
       name: "kb_remove",
       description:
-        "Remove a file's indexed chunks from the knowledge base. " +
-        "Use when a file has been deleted and the watcher didn't catch it, " +
+        "Remove all indexed chunks for a given source file from the knowledge base. " +
+        "Use when a file has been deleted (or renamed) and the watcher didn't catch it, " +
         "or when you want to manually purge a file's data.",
       parameters: {
         type: "object",
@@ -143,11 +169,12 @@ export function registerKBTools(ark: ArkKB) {
           sourcePath: {
             type: "string",
             description:
-              "Source file path (basename, e.g. 'product-manual.pdf') to remove from index.",
+              "Source file basename (e.g. 'product-manual.pdf') to remove from index.",
           },
         },
         required: ["sourcePath"],
       },
+
       async execute(_toolCallId: string, params: { sourcePath: string }) {
         try {
           const deleted = await ark.removeSource(params.sourcePath);
@@ -159,51 +186,66 @@ export function registerKBTools(ark: ArkKB) {
               },
             ],
           };
-        } catch (err) {
+        } catch (err: any) {
           return {
-            content: [{ type: "text" as const, text: `Removal failed: ${err}` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `Removal failed: ${err.message}`,
+              },
+            ],
           };
         }
       },
     },
 
     // ====================================================================
-    // kb_status — Knowledge base status overview
+    // kb_status — Knowledge base health summary
     // ====================================================================
     {
       name: "kb_status",
       description:
-        "Show knowledge base status: total chunks, indexed files, and configuration summary. " +
-        "Use to check if the knowledge base is healthy and which files are indexed.",
+        "Show knowledge base status: total chunks, indexed files, configuration summary. " +
+        "Use to check health and see what files are indexed.",
       parameters: {
         type: "object",
         properties: {},
       },
+
       async execute() {
         try {
           const { chunkCount, sources } = await ark.status();
+          const cfg = ark.config;
+
           return {
             content: [
               {
                 type: "text" as const,
                 text:
                   `**Ark KB Status**\n` +
-                  `- Total chunks: ${chunkCount}\n` +
-                  `- Indexed files: ${sources.length}\n` +
-                  `- Files: ${sources.join(", ") || "(empty)"}\n` +
-                  `- Knowledge path: ${ark.config.knowledgePath}\n` +
-                  `- Embedding model: ${ark.config.embedding.model} (${ark.config.embedding.dimensions}d)\n` +
-                  `- Embedding API: ${ark.config.embedding.api}\n` +
-                  `- Reranker: ${ark.config.reranker.api}\n` +
-                  `- File watcher: ${ark.config.watcher.enabled ? "active" : "inactive"}\n` +
-                  `- BM25: ${ark.config.search.bm25Enabled ? "enabled" : "disabled"}\n` +
-                  `  (vector weight: ${ark.config.search.vectorWeight})`,
+                  `- Chunks: ${chunkCount}\n` +
+                  `- Files: ${sources.length}\n` +
+                  (sources.length > 0 ? `- File list: ${sources.join(", ")}\n` : "") +
+                  `- Knowledge path: ${cfg.knowledgePath}\n` +
+                  `- DB path: ${cfg.storage.dbPath}\n` +
+                  `- Embedding: ${cfg.embedding.model} (${cfg.embedding.dimensions}d, ${cfg.embedding.api})\n` +
+                  `- Embedding endpoint: ${cfg.embedding.endpoint}\n` +
+                  `- Chunking: ${cfg.chunking.strategy} (maxTokens=${cfg.chunking.maxTokens}, overlap=${cfg.chunking.overlapTokens})\n` +
+                  `- Search: vectorWeight=${cfg.search.vectorWeight}, topK=${cfg.search.topK}, resultCount=${cfg.search.resultCount}\n` +
+                  `- Reranker: ${cfg.reranker?.api ?? "none"} (minScore=${cfg.reranker?.minScore ?? "N/A"})\n` +
+                  `- File watcher: ${cfg.watcher?.enabled ? "active" : "inactive"}\n` +
+                  (cfg.watcher?.enabled && cfg.watcher.paths ? `  Additional watch paths: ${cfg.watcher.paths.join(", ")}\n` : ""),
               },
             ],
           };
-        } catch (err) {
+        } catch (err: any) {
           return {
-            content: [{ type: "text" as const, text: `Status check failed: ${err}` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `Status check failed: ${err.message}`,
+              },
+            ],
           };
         }
       },

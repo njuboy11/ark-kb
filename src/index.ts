@@ -1,21 +1,264 @@
 /**
  * Ark KB — Main Entry
- * Initializes and wires together Store, Embedder, Ingester, Searcher, and Watcher.
+ * Wires together all components with nested config support.
  */
 
+import { join, resolve } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { registerKBTools } from "./tools.js";
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { Ingester } from "./ingester.js";
 import { Searcher } from "./searcher.js";
 import { FileWatcher } from "./watcher.js";
-import { ArkKBConfig, ResolvedConfig, resolveConfig } from "./config.js";
-import { registerKBTools } from "./tools.js";
 
 // ============================================================================
-// ArkKB
+// Raw config from openclaw.plugin.json
+// ============================================================================
+
+export interface RawConfig {
+  knowledgePath?: string;
+  storage?: { dbPath?: string };
+  chunking?: {
+    maxTokens?: number;
+    overlapTokens?: number;
+    strategy?: string;
+  };
+  embedding?: {
+    api?: string;
+    endpoint?: string;
+    apiKey?: string;
+    model?: string;
+    dimensions?: number;
+    batchSize?: number;
+  };
+  pdfParser?: {
+    api?: string;
+    endpoint?: string;
+    apiKey?: string;
+    model?: string;
+  };
+  reranker?: {
+    api?: string;
+    endpoint?: string;
+    apiKey?: string;
+    model?: string;
+    minScore?: number;
+  };
+  search?: {
+    vectorWeight?: number;
+    topK?: number;
+    resultCount?: number;
+  };
+  watcher?: {
+    enabled?: boolean;
+    paths?: string[];
+    debounceMs?: number;
+    ignorePatterns?: string[];
+  };
+}
+
+// ============================================================================
+// Resolved config (flat, with defaults)
+// ============================================================================
+
+export interface ResolvedConfig {
+  knowledgePath: string;
+  storage: { dbPath: string };
+  chunking: {
+    maxTokens: number;
+    overlapTokens: number;
+    strategy: "paragraph" | "fixed" | "sentence";
+  };
+  embedding: {
+    api: "dashscope" | "siliconflow" | "openai" | "custom";
+    endpoint: string;
+    apiKey: string;
+    model: string;
+    dimensions: number;
+    batchSize: number;
+  };
+  pdfParser: {
+    api: "mineru" | "builtin" | "none";
+    endpoint: string;
+    apiKey: string;
+    model: string;
+  };
+  reranker: {
+    api: "siliconflow" | "cohere" | "custom" | "none";
+    endpoint: string;
+    apiKey: string;
+    model: string;
+    minScore: number;
+  };
+  search: {
+    vectorWeight: number;
+    topK: number;
+    resultCount: number;
+  };
+  watcher: {
+    enabled: boolean;
+    paths: string[];
+    debounceMs: number;
+    ignorePatterns: string[];
+  };
+}
+
+// ============================================================================
+// Sub-config interfaces (passed to components)
+// ============================================================================
+
+export interface IngesterConfig {
+  chunking: ResolvedConfig["chunking"];
+  pdfParser: ResolvedConfig["pdfParser"];
+}
+
+export interface SearcherConfig {
+  search: ResolvedConfig["search"];
+  reranker: ResolvedConfig["reranker"];
+}
+
+export interface WatcherConfig {
+  enabled: boolean;
+  paths: string[];
+  debounceMs: number;
+  ignorePatterns: string[];
+}
+
+// ============================================================================
+// Defaults
+// ============================================================================
+
+const DEFAULTS: ResolvedConfig = {
+  knowledgePath: "",
+  storage: { dbPath: "~/.ark-kb/lancedb" },
+  chunking: {
+    maxTokens: 400,
+    overlapTokens: 50,
+    strategy: "paragraph",
+  },
+  embedding: {
+    api: "siliconflow",
+    endpoint: "https://api.siliconflow.cn/v1/embeddings",
+    apiKey: "",
+    model: "Qwen3-VL-Embedding-8B",
+    dimensions: 4096,
+    batchSize: 16,
+  },
+  pdfParser: {
+    api: "builtin",
+    endpoint: "",
+    apiKey: "",
+    model: "doclayout_onnx",
+  },
+  reranker: {
+    api: "none",
+    endpoint: "",
+    apiKey: "",
+    model: "BAAI/bge-m3",
+    minScore: 0.35,
+  },
+  search: {
+    vectorWeight: 0.7,
+    topK: 20,
+    resultCount: 6,
+  },
+  watcher: {
+    enabled: true,
+    paths: [],
+    debounceMs: 2000,
+    ignorePatterns: ["*.tmp", "*.swp", "~*", ".*"],
+  },
+};
+
+// ============================================================================
+// Config resolution
+// ============================================================================
+
+function resolveDbPath(p: string): string {
+  if (p.startsWith("~/") || p === "~") {
+    return join(homedir(), p.slice(1));
+  }
+  return p;
+}
+
+function resolveConfig(raw: RawConfig): ResolvedConfig {
+  const embedding = raw.embedding;
+  const reranker = raw.reranker;
+
+  // Determine embedding endpoint from API type if not explicitly set
+  let endpoint = embedding?.endpoint ?? "";
+  if (!endpoint && embedding?.api) {
+    switch (embedding.api) {
+      case "dashscope":
+        endpoint = endpoint || "https://dashscope.aliyuncs.com/api/v1/embeddings";
+        break;
+      case "siliconflow":
+        endpoint = endpoint || "https://api.siliconflow.cn/v1/embeddings";
+        break;
+      case "openai":
+        endpoint = endpoint || "https://api.openai.com/v1/embeddings";
+        break;
+      default:
+        endpoint = endpoint || "";
+    }
+  }
+
+  return {
+    knowledgePath: raw.knowledgePath ?? DEFAULTS.knowledgePath,
+
+    storage: {
+      dbPath: resolveDbPath(raw.storage?.dbPath ?? DEFAULTS.storage.dbPath),
+    },
+
+    chunking: {
+      maxTokens: raw.chunking?.maxTokens ?? DEFAULTS.chunking.maxTokens,
+      overlapTokens: raw.chunking?.overlapTokens ?? DEFAULTS.chunking.overlapTokens,
+      strategy: (raw.chunking?.strategy as any) ?? DEFAULTS.chunking.strategy,
+    },
+
+    embedding: {
+      api: (embedding?.api as any) ?? DEFAULTS.embedding.api,
+      endpoint,
+      apiKey: embedding?.apiKey ?? DEFAULTS.embedding.apiKey,
+      model: embedding?.model ?? DEFAULTS.embedding.model,
+      dimensions: embedding?.dimensions ?? DEFAULTS.embedding.dimensions,
+      batchSize: embedding?.batchSize ?? DEFAULTS.embedding.batchSize,
+    },
+
+    pdfParser: {
+      api: (raw.pdfParser?.api as any) ?? DEFAULTS.pdfParser.api,
+      endpoint: raw.pdfParser?.endpoint ?? DEFAULTS.pdfParser.endpoint,
+      apiKey: raw.pdfParser?.apiKey ?? DEFAULTS.pdfParser.apiKey,
+      model: raw.pdfParser?.model ?? DEFAULTS.pdfParser.model,
+    },
+
+    reranker: {
+      api: (reranker?.api as any) ?? DEFAULTS.reranker.api,
+      endpoint: reranker?.endpoint ?? DEFAULTS.reranker.endpoint,
+      apiKey: reranker?.apiKey ?? DEFAULTS.reranker.apiKey,
+      model: reranker?.model ?? DEFAULTS.reranker.model,
+      minScore: reranker?.minScore ?? DEFAULTS.reranker.minScore,
+    },
+
+    search: {
+      vectorWeight: raw.search?.vectorWeight ?? DEFAULTS.search.vectorWeight,
+      topK: raw.search?.topK ?? DEFAULTS.search.topK,
+      resultCount: raw.search?.resultCount ?? DEFAULTS.search.resultCount,
+    },
+
+    watcher: {
+      enabled: raw.watcher?.enabled ?? DEFAULTS.watcher.enabled,
+      paths: raw.watcher?.paths ?? DEFAULTS.watcher.paths,
+      debounceMs: raw.watcher?.debounceMs ?? DEFAULTS.watcher.debounceMs,
+      ignorePatterns: raw.watcher?.ignorePatterns ?? DEFAULTS.watcher.ignorePatterns,
+    },
+  };
+}
+
+// ============================================================================
+// ArkKB — Main class
 // ============================================================================
 
 export class ArkKB {
@@ -26,26 +269,25 @@ export class ArkKB {
   public watcher: FileWatcher;
   public config: ResolvedConfig;
 
-  private initialized = false;
+  private _initialized = false;
 
-  constructor(config: ArkKBConfig) {
-    this.config = resolveConfig(config);
+  constructor(rawConfig: RawConfig = {}) {
+    this.config = resolveConfig(rawConfig);
 
-    // Expand ~ in paths
-    const dbPath = expandPath(this.config.storage.dbPath);
-    const knowledgePath = this.config.knowledgePath;
-
-    // Ensure directories exist
-    if (knowledgePath && !existsSync(knowledgePath)) {
-      mkdirSync(knowledgePath, { recursive: true });
-    }
-    if (!existsSync(dbPath)) {
-      mkdirSync(dbPath, { recursive: true });
+    // Ensure knowledge path exists
+    const kp = this.config.knowledgePath;
+    if (kp && !existsSync(kp)) {
+      mkdirSync(kp, { recursive: true });
     }
 
-    // Wire up components
+    // Ensure DB directory exists
+    if (!existsSync(this.config.storage.dbPath)) {
+      mkdirSync(this.config.storage.dbPath, { recursive: true });
+    }
+
+    // Instantiate components
     this.store = new KnowledgeStore({
-      dbPath,
+      dbPath: this.config.storage.dbPath,
       vectorDim: this.config.embedding.dimensions,
     });
 
@@ -58,75 +300,102 @@ export class ArkKB {
       batchSize: this.config.embedding.batchSize,
     });
 
-    this.ingester = new Ingester(this.store, this.embedder, this.config);
-    this.searcher = new Searcher(this.store, this.embedder, this.config);
-    this.watcher = new FileWatcher();
+    this.ingester = new Ingester(this.store, this.embedder, {
+      chunking: this.config.chunking,
+      pdfParser: this.config.pdfParser,
+    });
+
+    this.searcher = new Searcher(
+      this.store,
+      this.embedder,
+      this.config.knowledgePath,
+      {
+        search: this.config.search,
+        reranker: this.config.reranker,
+      },
+    );
+
+    this.watcher = new FileWatcher({
+      enabled: this.config.watcher.enabled,
+      paths: this.config.watcher.paths,
+      debounceMs: this.config.watcher.debounceMs,
+      ignorePatterns: this.config.watcher.ignorePatterns,
+    });
   }
 
+  /**
+   * Initialize the knowledge base: connect to LanceDB, optionally scan
+   * the knowledge directory, and optionally start the file watcher.
+   */
   async init(): Promise<void> {
-    if (this.initialized) return;
+    if (this._initialized) return;
 
-    // 1. Initialize LanceDB
+    // 1. Initialize LanceDB store
     console.log("[Ark KB] Initializing LanceDB...");
     await this.store.init();
 
-    // 2. Ingest knowledge directory
-    if (this.config.knowledgePath) {
-      console.log("[Ark KB] Ingesting knowledge directory...");
-      const { total, files } = await this.ingester.ingestDirectory(this.config.knowledgePath);
-      console.log(`[Ark KB] Indexed ${files} files, ${total} chunks total`);
+    // 2. Scan existing files
+    const kp = this.config.knowledgePath;
+    let total = 0;
+    let files = 0;
 
-      // 3. Start file watcher
-      if (this.config.watcher.enabled) {
-        this.watcher.start(
-          this.config.knowledgePath,
-          async (event, filePath) => {
-            if (event === "add" || event === "change") {
-              await this.ingester.ingestFile(filePath);
-            } else if (event === "unlink") {
-              const base = filePath.split("/").pop() ?? filePath;
-              const deleted = await this.store.deleteBySource(base);
-              console.log(`[Ark KB] Removed: ${base} (${deleted} chunks)`);
-            }
-          },
-          this.config.watcher.debounceMs,
-          this.config.watcher.ignorePatterns,
-        );
-        console.log(`[Ark KB] File watcher active: ${this.config.knowledgePath}`);
-      }
-    } else {
-      console.log("[Ark KB] No knowledgePath configured; skipping auto-ingest and watcher.");
+    if (kp) {
+      console.log(`[Ark KB] Scanning knowledge directory: ${kp}`);
+      const result = await this.ingester.ingestDirectory(kp);
+      total = result.total;
+      files = result.files;
+      console.log(`[Ark KB] Indexed ${files} files, ${total} chunks`);
     }
 
-    this.initialized = true;
-    console.log("[Ark KB] Ready.");
+    // 3. Start file watcher
+    if (this.config.watcher.enabled && kp) {
+      this.watcher.start(kp, async (event, filePath) => {
+        const base = filePath.split("/").pop() || filePath;
+
+        if (event === "add" || event === "change") {
+          try {
+            await this.ingester.ingestFile(filePath);
+          } catch (err: any) {
+            console.error(`[Ark KB] Watcher ingest error (${filePath}): ${err.message}`);
+          }
+        } else if (event === "unlink") {
+          try {
+            const deleted = await this.store.deleteBySource(base);
+            if (deleted > 0) {
+              console.log(`[Ark KB] Removed: ${base} (${deleted} chunks)`);
+            }
+          } catch (err: any) {
+            console.error(`[Ark KB] Watcher delete error (${base}): ${err.message}`);
+          }
+        }
+      });
+    }
+
+    this._initialized = true;
+    console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
   }
 
   // ========================================================================
   // Public API
   // ========================================================================
 
-  async search(query: string, options?: Partial<import("./searcher.js").SearchOptions>): Promise<import("./searcher.js").SearchResult[]> {
+  async search(query: string, options?: {
+    topK?: number;
+    rerankerEnabled?: boolean;
+    rerankerMinScore?: number;
+    resultCount?: number;
+  }): Promise<any[]> {
     return await this.searcher.search({
       query,
-      topK: options?.topK ?? this.config.search.topK,
-      resultCount: options?.resultCount ?? this.config.search.resultCount,
-      vectorWeight: options?.vectorWeight ?? this.config.search.vectorWeight,
-      bm25Enabled: options?.bm25Enabled ?? this.config.search.bm25Enabled,
-      rerankerEnabled: options?.rerankerEnabled ?? (this.config.reranker.api !== "none"),
-      rerankerMinScore: options?.rerankerMinScore ?? this.config.reranker.minScore,
+      topK: options?.topK,
+      rerankerEnabled: options?.rerankerEnabled,
+      rerankerMinScore: options?.rerankerMinScore,
+      resultCount: options?.resultCount,
     });
   }
 
-  async ingestFile(filePath: string): Promise<{ entries: number; source: string }> {
+  async ingestFile(filePath: string): Promise<{ entries: number; source: string; skipped: boolean }> {
     return await this.ingester.ingestFile(filePath);
-  }
-
-  async ingestDirectory(): Promise<{ total: number; files: number }> {
-    if (!this.config.knowledgePath) {
-      return { total: 0, files: 0 };
-    }
-    return await this.ingester.ingestDirectory(this.config.knowledgePath);
   }
 
   async removeSource(sourcePath: string): Promise<number> {
@@ -144,28 +413,20 @@ export class ArkKB {
   async shutdown(): Promise<void> {
     this.watcher.stop();
     await this.store.close();
-    console.log("[Ark KB] Shutdown complete.");
+    console.log("[Ark KB] Shutdown complete");
+  }
+
+  // Expose ingester for kb_ingest tool (full directory re-index)
+  get ingesterInstance(): Ingester {
+    return this.ingester;
   }
 
   /**
-   * Returns the tool registration array for OpenClaw.
+   * Register tools with OpenClaw.
    */
-  getTools() {
+  getTools(): ReturnType<typeof registerKBTools> {
     return registerKBTools(this);
   }
 }
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
-// Re-export types
-export type { ArkKBConfig, ResolvedConfig } from "./config.js";
-export type { SearchOptions, SearchResult, SourceContent } from "./searcher.js";
+export { registerKBTools };

@@ -3,176 +3,201 @@
   "id": "@njuboy11/ark-kb",
   "name": "ark-kb",
   "version": "0.1.0",
-  "description": "Ark Knowledge Base — LanceDB + Multimodal Embedding personal knowledge base with BM25+vector hybrid search",
+  "description": "🏛️ Ark Knowledge Base — Personal knowledge base powered by LanceDB + Multimodal Embedding",
   "author": "njuboy11",
   "license": "GPL-3.0-only",
   "entry": "./index.js",
   "contracts": {
     "tools": true
   },
-  "tools": ["kb_search", "kb_ingest", "kb_remove", "kb_status"],
+  "tools": [
+    "kb_search",
+    "kb_ingest",
+    "kb_remove",
+    "kb_status"
+  ],
   "configSchema": {
     "type": "object",
     "properties": {
-      "knowledgePath": {
-        "type": "string",
-        "default": "",
-        "description": "Root folder to index (absolute path)"
-      },
       "storage": {
         "type": "object",
+        "description": "Storage configuration",
+        "default": {},
         "properties": {
           "dbPath": {
             "type": "string",
-            "default": "~/.ark-kb/lancedb",
-            "description": "LanceDB database storage path"
-          }
-        }
-      },
-      "embedding": {
-        "type": "object",
-        "properties": {
-          "api": {
-            "type": "string",
-            "enum": ["qwen3-vl", "openai", "custom"],
-            "default": "qwen3-vl"
-          },
-          "endpoint": {
-            "type": "string",
-            "default": "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"
-          },
-          "apiKey": {
-            "type": "string",
-            "default": ""
-          },
-          "model": {
-            "type": "string",
-            "default": "Qwen3-VL-Embedding-8B"
-          },
-          "dimensions": {
-            "type": "number",
-            "default": 4096
-          },
-          "batchSize": {
-            "type": "number",
-            "default": 8
-          }
-        }
-      },
-      "reranker": {
-        "type": "object",
-        "properties": {
-          "api": {
-            "type": "string",
-            "enum": ["siliconflow", "cohere", "none"],
-            "default": "none"
-          },
-          "endpoint": {
-            "type": "string",
-            "default": "https://api.siliconflow.cn/v1/rerank"
-          },
-          "apiKey": {
-            "type": "string",
-            "default": ""
-          },
-          "model": {
-            "type": "string",
-            "default": "BAAI/bge-reranker-v2-m3"
-          },
-          "minScore": {
-            "type": "number",
-            "default": 0.35
-          }
-        }
-      },
-      "pdfParser": {
-        "type": "object",
-        "properties": {
-          "api": {
-            "type": "string",
-            "enum": ["mineru", "builtin", "none"],
-            "default": "none"
-          },
-          "endpoint": {
-            "type": "string",
-            "default": ""
-          },
-          "apiKey": {
-            "type": "string",
-            "default": ""
-          },
-          "model": {
-            "type": "string",
-            "default": "precise-v4"
-          }
-        }
-      },
-      "search": {
-        "type": "object",
-        "properties": {
-          "vectorWeight": {
-            "type": "number",
-            "default": 0.7,
-            "minimum": 0,
-            "maximum": 1
-          },
-          "topK": {
-            "type": "number",
-            "default": 20
-          },
-          "resultCount": {
-            "type": "number",
-            "default": 6
-          },
-          "bm25Enabled": {
-            "type": "boolean",
-            "default": true
-          },
-          "fusionMethod": {
-            "type": "string",
-            "enum": ["min_max", "z_score", "rrf", "raw"],
-            "default": "min_max",
-            "description": "Score fusion method: min_max (normalize each to [0,1]), z_score (standardize), rrf (reciprocal rank), raw (weighted raw)"
+            "description": "Path to LanceDB database directory",
+            "default": "~/.ark-kb/lancedb"
           }
         }
       },
       "chunking": {
         "type": "object",
+        "description": "Text chunking configuration",
+        "default": {},
         "properties": {
           "maxTokens": {
             "type": "number",
+            "description": "Max tokens per chunk (approximate char count for CJK)",
             "default": 400
           },
           "overlapTokens": {
             "type": "number",
+            "description": "Overlap between adjacent chunks in tokens",
             "default": 50
           },
           "strategy": {
             "type": "string",
-            "enum": ["paragraph", "fixed", "sentence"],
+            "description": "Chunking strategy: paragraph | fixed | sentence",
             "default": "paragraph"
+          }
+        }
+      },
+      "embedding": {
+        "type": "object",
+        "description": "Embedding API configuration",
+        "default": {},
+        "properties": {
+          "api": {
+            "type": "string",
+            "description": "Embedding API provider: dashscope | siliconflow | openai | custom",
+            "default": "siliconflow"
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "Embedding API endpoint URL",
+            "default": "https://api.siliconflow.cn/v1/embeddings"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "API key for the embedding service"
+          },
+          "model": {
+            "type": "string",
+            "description": "Embedding model name",
+            "default": "Qwen3-VL-Embedding-8B"
+          },
+          "dimensions": {
+            "type": "number",
+            "description": "Embedding vector dimensions",
+            "default": 4096
+          },
+          "batchSize": {
+            "type": "number",
+            "description": "Max texts per embedding batch request",
+            "default": 16
+          }
+        }
+      },
+      "pdfParser": {
+        "type": "object",
+        "description": "PDF parsing configuration",
+        "default": {},
+        "properties": {
+          "api": {
+            "type": "string",
+            "description": "PDF parser: mineru | builtin | none",
+            "default": "builtin"
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "MinerU API endpoint URL"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "MinerU API key"
+          },
+          "model": {
+            "type": "string",
+            "description": "MinerU parsing model",
+            "default": "doclayout_onnx"
+          }
+        }
+      },
+      "reranker": {
+        "type": "object",
+        "description": "Reranker configuration for precision scoring",
+        "default": {},
+        "properties": {
+          "api": {
+            "type": "string",
+            "description": "Reranker API: siliconflow | cohere | custom | none",
+            "default": "siliconflow"
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "Reranker API endpoint URL"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "Reranker API key"
+          },
+          "model": {
+            "type": "string",
+            "description": "Reranker model name",
+            "default": "BAAI/bge-m3"
+          },
+          "minScore": {
+            "type": "number",
+            "description": "Minimum relevance score to include in results",
+            "default": 0.35
+          }
+        }
+      },
+      "search": {
+        "type": "object",
+        "description": "Search behavior configuration",
+        "default": {},
+        "properties": {
+          "vectorWeight": {
+            "type": "number",
+            "description": "Weight for vector search score (0.0-1.0). BM25 weight = 1 - vectorWeight",
+            "default": 0.7
+          },
+          "topK": {
+            "type": "number",
+            "description": "Initial recall count per search arm (vector + BM25)",
+            "default": 20
+          },
+          "resultCount": {
+            "type": "number",
+            "description": "Final number of results to return",
+            "default": 6
           }
         }
       },
       "watcher": {
         "type": "object",
+        "description": "File watcher configuration",
+        "default": {},
         "properties": {
           "enabled": {
             "type": "boolean",
+            "description": "Enable automatic file watching and indexing",
             "default": true
+          },
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Additional directories to watch (knowledgePath is always watched)"
           },
           "debounceMs": {
             "type": "number",
+            "description": "Milliseconds to wait for file stability before re-indexing",
             "default": 2000
           },
           "ignorePatterns": {
             "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": [".*", "~*", "*.tmp", "*.swp", "*.part"]
+            "items": { "type": "string" },
+            "description": "Glob patterns to ignore (e.g. *.tmp, .*, ~*)",
+            "default": ["*.tmp", "*.swp", "~*", ".*"]
           }
         }
+      },
+      "knowledgePath": {
+        "type": "string",
+        "description": "Root directory for the knowledge base files",
+        "default": ""
       }
     }
   }
