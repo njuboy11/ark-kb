@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  version-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version consistency
+        run: |
+          pkg_ver=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          plugin_ver=$(node -p "JSON.parse(require('fs').readFileSync('openclaw.plugin.json','utf8')).version")
+          if [ "$pkg_ver" != "$plugin_ver" ]; then
+            echo "::error::Version mismatch: package.json=$pkg_ver, openclaw.plugin.json=$plugin_ver"
+            exit 1
+          fi
+          echo "Versions match: $pkg_ver"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      - name: Check no leftover .js/.d.ts in src/
+        run: |
+          js_count=$(find src -name '*.js' -o -name '*.d.ts' | wc -l)
+          if [ "$js_count" -gt 0 ]; then
+            echo "::error::Found $(js_count) compiled files in src/:"
+            find src -name '*.js' -o -name '*.d.ts'
+            exit 1
+          fi
+          echo "No compiled files in src/: clean"
