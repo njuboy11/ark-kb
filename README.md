@@ -1,170 +1,148 @@
 # 🏛️ Ark KB
 
-> **Ark Knowledge Base** — 你的私人知识方舟，基于 LanceDB + 多模态 Embedding 的知识库系统。
+> **Ark Knowledge Base** — A personal knowledge base powered by LanceDB + Multimodal Embedding.
 
-**一句话：把你的文件扔进去，什么都不用管，剩下的事我来做。**
+**Drop your files in a folder. That's it.**
 
 ---
 
-## 📖 概述
+## 📖 Overview
 
-Ark KB 是一个为 AI 助手打造的知识库插件。它的理念很简单：
+Ark KB is a knowledge base plugin built for AI assistants. The philosophy is dead simple:
 
-**你只需要一个文件夹，往里丢东西就行了。**
+**You get one folder. You put stuff in it. Everything else is automatic.**
 
 ```
 ┌─────────────────────────────────────────┐
-│          你的知识文件夹                    │
+│          Your Knowledge Folder           │
 │                                          │
-│  📄 产品手册.pdf  🖼️ 架构图.png           │
-│  📄 技术方案.md   🖼️ 登录界面.png         │
-│  📄 季度汇报.docx 🖼️ 数据看板.png         │
+│  📄 product-manual.pdf  🖼️ arch.png     │
+│  📄 technical-design.md 🖼️ login-ui.png │
+│  📄 Q2-report.docx      🖼️ dashboard.png│
 │                                          │
-│         ↓ 自动检测（fs.watch）             │
-│         ↓ 自动解析（新增 / 修改 / 删除）     │
-│         ↓ 自动向量化（Qwen3-VL-8B）         │
-│         ↓ 自动索引（LanceDB）               │
-│         ↓ 自动同步                         │
+│         ↓ fs.watch (auto detect)          │
+│         ↓ auto parse (add / modify / del) │
+│         ↓ auto embed (Qwen3-VL-8B)        │
+│         ↓ auto index (LanceDB)            │
+│         ↓ auto sync                       │
 └─────────────────────────────────────────┘
 
-你说： "找那个用户登录界面的设计稿"
+You say: "Find me that login UI screenshot"
    ↓
-我搜： 语义命中 → 图片路径 → 拿过来给你看
+I search: semantic match → image path → show it to you
 ```
 
 ---
 
-## ✨ 核心特性
+## ✨ Features
 
-### 🔌 零配置，文件系统即知识库
-不需要手动导入、不需要分门别类、不需要建目录树。指定一个文件夹，**丢文件进去自动索引**，删文件自动清除，改文件自动同步。
+### 🔌 Zero config, filesystem-as-database
+No manual imports. No folder hierarchy to maintain. No directory trees to remember. Designate a folder — **drop files in to auto-index**, delete to auto-remove, modify to auto-sync.
 
-### 🧠 原生多模态语义搜索
-基于 **Qwen3-VL-Embedding-8B**（4096 维向量），文字和图片在**同一个向量空间**：
+### 🧠 Native multimodal semantic search
+Powered by **Qwen3-VL-Embedding-8B** (4096 dimensions). Text and images live in **the same vector space**:
 
 ```
-你说的："深色渐变背景的登录界面，右上角有 logo"
-   ↓            同一条向量，同一个空间
-图片的：一张登录界面截图
+You type: "Dark gradient login screen with logo on top-right"
+   ↓            Same vector space
+Image has: An actual login screenshot
 
-→ 用文字描述搜图片，完美匹配 ✅
-→ 没有语义盲区，更不需要图片先转文字描述
+→ Search with text, find images. Natively. ✅
+→ No need to describe images manually before searching
 ```
 
-### 📄 多格式自动解析
+### 📄 Multi-format auto-parsing
 
-| 类型 | 支持 | 处理方式 |
+| Type | Status | Pipeline |
 |---|---|---|
-| **PDF** | ✅ | 调用 MinerU 自动解析 → 提取文字 + 图片 |
-| **Markdown** | ✅ | 直接分词、保留图片引用 |
-| **纯文本** | ✅ | 直接分词索引 |
-| **图片（png/jpg/webp）** | ✅ | 独立视觉向量，文字描述可搜 |
-| **Office（docx/xlsx）** | 🔜 | 计划中 |
+| **PDF** | ✅ | MinerU → text + images |
+| **Markdown** | ✅ | Direct chunking, preserves image references |
+| **Plain text** | ✅ | Direct chunking |
+| **Images (png/jpg/webp)** | ✅ | Standalone visual vectors |
+| **Office (docx/xlsx)** | 🔜 | Planned |
 
-### 👁️ 图文关联，所见即所得
-MinerU 解析 PDF 时自动提取图片位置，保持原文中的图文关联。
-
-```
-搜索： "\"JWT 认证流程\"
-命中 chunk：Token 过期后通过 refresh_token 刷新...
-关联图片：架构图.png → 直接展示给你看
-```
-
-### 🚀 架构清晰，各司其职
+### 👁️ Text-image association, WYSIWYG
+PDFs parsed by MinerU retain the original text-image relationship. Search results carry image references.
 
 ```
-归档层（文件系统）
-  └── /path/to/knowledge/     ← 你只关心这个文件夹
-        ├── 产品方案.pdf
-        ├── 架构图.png
-        └── 技术文档.md
+Search: "JWT auth flow"
+Hit chunk: Token expired... use refresh_token...
+Linked image: arch-diagram.png → shown inline
+```
 
-索引层（LanceDB）
+### 🚀 Clean architecture, separation of concerns
+
+```
+Storage layer (filesystem)
+  └── /path/to/knowledge/     ← You only care about this folder
+        ├── product-plan.pdf
+        ├── arch-diagram.png
+        └── technical-doc.md
+
+Index layer (LanceDB)
   └── collection: knowledge_base
-        ├── chunk_text: "Token 过期后..."
-        ├── embedding: [4096维向量]
-        ├── source_path: "技术文档.md"
-        ├── images: ["架构图.png"]
+        ├── chunk_text: "Token expires after..."
+        ├── embedding: [4096-dim vector]
+        ├── source_path: "technical-doc.md"
+        ├── images: ["arch-diagram.png"]
         └── ...
 
-检索层（多模态 + Reranker）
-  └── Qwen3-VL-8B → 向量化
-  └── LanceDB ANNS → 近似近邻搜索
-  └── BGE-m3 → 精排重排序（可选）
+Retrieval layer (multimodal + reranker)
+  └── Qwen3-VL-8B → vectorization
+  └── LanceDB ANNS → approximate nearest neighbor search
+  └── BGE-m3 → reranking (optional)
 ```
 
 ---
 
-## 🔧 技术架构
+## 🔧 Technical Stack
 
-### 核心栈
-
-| 组件 | 技术选型 | 说明 |
+| Component | Technology | Notes |
 |---|---|---|
-| 向量数据库 | **LanceDB** | 嵌入式，单机轻量，零运维 |
-| 多模态 Embedding | **Qwen3-VL-Embedding-8B** | 4096 维，图文统一向量空间 |
-| 检索算法 | **IVF-PQ（LanceDB 内置）** | 近似近邻搜索，毫秒级 |
-| 精排（可选） | **BGE-m3 Reranker** | 第二次精排，过滤低分结果 |
-| 文件监听 | **Node.js fs.watch（inotify）** | 实时文件增删改检测 |
-| PDF 解析 | **MinerU** | 高精度 PDF→Markdown + 图片提取 |
+| Vector database | **LanceDB** | Embedded, zero-ops, single-binary |
+| Multimodal embedding | **Qwen3-VL-Embedding-8B** | 4096-dim, unified text/image space |
+| Search algo | **IVF-PQ (LanceDB native)** | Approximate NN, millisecond latency |
+| Reranking (opt) | **BGE-m3** | Cross-encoder precision filter |
+| File watching | **Node.js fs.watch (inotify)** | Real-time add/change/delete detection |
+| PDF parsing | **MinerU** | High-precision PDF→Markdown + image extraction |
 
-### 向量维度
-- **4096 维**，Qwen3-VL-8B 原生支持维度
-- 个人知识库规模（数千~十万条）下速度完全无感知
-- 高维确保图文语义区分度
+## 🗺️ Roadmap
 
----
-
-## 📊 快速对比
-
-| 特性 | Ark KB | 传统文件搜索 | 纯文本向量库 |
-|---|---|---|---|
-| 图文统一搜索 | ✅ | ❌ | ❌ |
-| 文件自动监听 | ✅ | ❌ | ❌ |
-| 多模态语义搜索 | ✅ | ❌ | ❌（仅文本） |
-| 按语义找图 | ✅ | ❌ | ❌ |
-| 安装配置 | 零配置 | N/A | 需手动索引 |
-| 搜索延迟 | 毫秒级 | 秒级 | 毫秒级 |
+- [x] `v0.1` — Project scaffold + GitHub repo
+- [ ] `v0.2` — Core: file watcher + auto-indexing + semantic search
+- [ ] `v0.3` — PDF auto-parsing (MinerU integration)
+- [ ] `v0.4` — Image multimodal indexing
+- [ ] `v0.5` — Reranker support
+- [ ] `v0.6` — OpenClaw plugin registration (kb_search / kb_ingest tools)
+- [ ] `v0.7` — Knowledge management CLI/TUI
+- [ ] `v1.0` — Stable release + Office document support
 
 ---
 
-## 🗺️ 路线图
-
-- [x] `v0.1` — 项目初始化 + Github 仓库
-- [ ] `v0.2` — 核心功能：文件监听 + 自动索引 + 语义搜索
-- [ ] `v0.3` — PDF 自动解析（对接 MinerU）
-- [ ] `v0.4` — 图片多模态索引
-- [ ] `v0.5` — Reranker 精排支持
-- [ ] `v0.6` — OpenClaw 插件化，注册 kb_search/kb_ingest 工具
-- [ ] `v0.7` — 知识库管理面板（CLI/TUI）
-- [ ] `v1.0` — 稳定版，Office 文档支持
-
----
-
-## 🚀 快速开始（规划）
+## 🚀 Quick Start (planned)
 
 ```bash
-# 1. 设置知识库目录
+# 1. Set your knowledge base directory
 export ARK_KB_PATH=/path/to/your/knowledge
 
-# 2. 启动（文件监听自动开始）
+# 2. Start (file watcher begins automatically)
 npx ark-kb start
 
-# 3. 往 /path/to/your/knowledge 里丢文件
-# 自动索引，无需任何操作
+# 3. Drop files into /path/to/your/knowledge
+# Auto-indexed, no action needed
 
-# 4. 搜索
-npx ark-kb search "登录界面设计"
+# 4. Search
+npx ark-kb search "login page design"
 ```
 
 ---
 
-## 🤝 谁适合用 Ark KB
+## 🤝 Who is it for
 
-- **AI 用户** — 让 AI 助手拥有你的私人知识库，随问随答
-- **知识工作者** — 分散在 PDF、截图、笔记中的信息统一检索
-- **设计师 / 产品经理** — 设计稿、原型图、需求文档一把搜
-- **技术写作者** — 技术方案、架构图、代码片段、文档一站式检索
+- **AI users** — Give your AI assistant a private knowledge base to query
+- **Knowledge workers** — Unified search across PDFs, screenshots, notes
+- **Designers / PMs** — Design drafts, prototypes, requirement docs, all searchable
+- **Technical writers** — Architecture docs, diagrams, code snippets, one-stop retrieval
 
 ---
 
@@ -174,4 +152,4 @@ MIT © [njuboy11](https://github.com/njuboy11)
 
 ---
 
-> **方舟虽小，承载万物。** 🏛️
+> **A small ark that holds your world.** 🏛️
