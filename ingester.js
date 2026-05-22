@@ -463,7 +463,8 @@ export class Ingester {
         }
         // Check if the embedding model supports this file type
         const modality = kind === "pdf" ? "text" : kind; // PDFs are text after MinerU extraction
-        if (!this.embedder.supportsModality(modality)) {
+        const skipVideo = kind === "video" && this.videoConfig.apiKey; // Video: use VLM, embed summary as text
+        if (!skipVideo && !this.embedder.supportsModality(modality)) {
             console.log(`[Ark KB] Skipping ${kind} file (model does not support ${modality}): ${filePath}`);
             return { entries: 0, source: basename(filePath), skipped: true };
         }
