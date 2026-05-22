@@ -46,7 +46,7 @@ export declare class Searcher {
     private applyReranker;
     /** Call a single reranker API and return scored results. Falls back to input on error. */
     private callReranker;
-    /** Expose a local media file for the reranker API. Tries HTTPS URL first, falls back to base64. */
+    /** Expose a local media file for the reranker API. */
     private exposeMediaUrl;
     private detectRerankerApi;
 }

@@ -24,6 +24,8 @@ export declare function resolveEmbeddingDimensions(api: string, model: string, u
 export declare function resolveEmbeddingEndpoint(api: string, model: string, userEndpoint?: string): string;
 /** Supported modalities from model registry, defaults to text-only */
 export declare function resolveEmbeddingModalities(api: string, model: string): string[];
+/** Expose a local file as HTTPS URL (if nginx available) or base64. */
+export declare function exposeMediaFile(knowledgePath: string, sourcePath: string): Promise<string>;
 export declare class Embedder {
     private config;
     constructor(config: EmbedderConfig);

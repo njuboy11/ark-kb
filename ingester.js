@@ -6,6 +6,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import { extname, basename, join } from "node:path";
 import { createHash } from "node:crypto";
+import { exposeMediaFile } from "./embedder.js";
+import { dirname } from "node:path";
 // ============================================================================
 // File type detection
 // ============================================================================
@@ -302,9 +304,9 @@ async function processImage(filePath, embedder) {
     const base = basename(filePath);
     const fileHash = await hashFile(filePath);
     const now = Date.now();
-    // For multimodal models, pass image path as a reference token
-    // The embedder will handle image encoding (base64 or URL)
-    const vectors = await embedder.embed(`[IMAGE:${filePath}]`);
+    // For multimodal models, expose the actual image data via HTTPS URL or base64
+    const mediaData = await exposeMediaFile(dirname(filePath), basename(filePath));
+    const vectors = await embedder.embed([mediaData || basename(filePath)]);
     return [
         {
             id: `${base}_0_${now}`,

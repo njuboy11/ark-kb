@@ -79,6 +79,41 @@ export function resolveEmbeddingModalities(api: string, model: string): string[]
 }
 
 // ============================================================================
+// Media file exposure — for multimodal APIs that need HTTPS URL or base64
+// ============================================================================
+
+import { copyFile, readFile } from "node:fs/promises";
+import { join, basename } from "node:path";
+import { existsSync, chmodSync } from "node:fs";
+
+/** Expose a local file as HTTPS URL (if nginx available) or base64. */
+export async function exposeMediaFile(
+  knowledgePath: string,
+  sourcePath: string,
+): Promise<string> {
+  const serveDir = "/var/www/downloads";
+  const baseName = basename(sourcePath);
+
+  // If nginx serve dir exists → copy + HTTPS URL (best performance)
+  if (existsSync(serveDir)) {
+    try {
+      const dest = join(serveDir, baseName);
+      await copyFile(join(knowledgePath, sourcePath), dest);
+      chmodSync(dest, 0o644);
+      return `https://home.sfunds.cn:8444/${encodeURIComponent(baseName)}`;
+    } catch { /* fall through to base64 */ }
+  }
+
+  // Fallback: base64 encode (works everywhere, no server needed)
+  try {
+    const fileBuffer = await readFile(join(knowledgePath, sourcePath));
+    return fileBuffer.toString("base64");
+  } catch {
+    return "";
+  }
+}
+
+// ============================================================================
 // Embedder
 // ============================================================================
 

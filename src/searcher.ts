@@ -7,7 +7,7 @@ import { readFile, copyFile, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { existsSync, chmodSync } from "node:fs";
 import { KnowledgeStore, KBSearchResult, KBEntry } from "./store.js";
-import { Embedder } from "./embedder.js";
+import { Embedder, exposeMediaFile } from "./embedder.js";
 import { SearcherConfig } from "./index.js";
 
 // ============================================================================
@@ -326,28 +326,9 @@ export class Searcher {
     }
   }
 
-  /** Expose a local media file for the reranker API. Tries HTTPS URL first, falls back to base64. */
+  /** Expose a local media file for the reranker API. */
   private async exposeMediaUrl(sourcePath: string): Promise<string> {
-    const serveDir = "/var/www/downloads";
-    const baseName = basename(sourcePath);
-
-    // If nginx serve dir exists → copy + HTTPS URL (best performance)
-    if (existsSync(serveDir)) {
-      try {
-        const dest = join(serveDir, baseName);
-        await copyFile(join(this.knowledgePath, sourcePath), dest);
-        chmodSync(dest, 0o644);
-        return `https://home.sfunds.cn:8444/${encodeURIComponent(baseName)}`;
-      } catch { /* fall through to base64 */ }
-    }
-
-    // Fallback: base64 encode the file (works everywhere, no server needed)
-    try {
-      const fileBuffer = await readFile(join(this.knowledgePath, sourcePath));
-      return fileBuffer.toString("base64");
-    } catch {
-      return ""; // File not found
-    }
+    return exposeMediaFile(this.knowledgePath, sourcePath);
   }
 
 
