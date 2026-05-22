@@ -274,6 +274,7 @@ function normalizeScores(results) {
     const range = max - min;
     if (range === 0)
         return results.map(r => ({ ...r, score: 1 }));
-    return results.map(r => ({ ...r, score: (r.score - min) / range }));
+    // Lower distance = better match → invert so 1.0 = best, 0.0 = worst
+    return results.map(r => ({ ...r, score: 1 - (r.score - min) / range }));
 }
 //# sourceMappingURL=searcher.js.map
