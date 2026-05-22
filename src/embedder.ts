@@ -39,7 +39,7 @@ export class Embedder {
    * Automatically splits into batchSize chunks and merges results.
    */
   async embed(texts: string | string[]): Promise<number[][]> {
-    const inputs = Array.isArray(texts) ? texts : [texts];
+    const inputs = (Array.isArray(texts) ? texts : [texts]).filter(s => s.trim().length > 0);
     if (inputs.length === 0) return [];
 
     const allEmbeddings: number[][] = [];
