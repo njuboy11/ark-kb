@@ -333,7 +333,7 @@ export class Searcher {
           .filter((r: any) => r.relevance_score >= minScore)
           .map((r: any) => ({ entry: results[r.index].entry, score: r.relevance_score }))
           .sort((a: any, b: any) => b.score - a.score);
-        return scored;
+        return scored.length > 0 ? scored : results.slice(0, 3);
       }
 
       console.warn("[Ark KB] Unknown reranker response format, returning un-scored results");
