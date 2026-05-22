@@ -2,7 +2,7 @@
   "name": "ark-kb",
   "version": "0.2.0",
   "type": "module",
-  "description": "\ud83c\udfdb\ufe0f Ark Knowledge Base \u2014 Personal knowledge base powered by LanceDB + Multimodal Embedding (Qwen3-VL-8B)",
+  "description": "🏛️ Ark Knowledge Base — Personal knowledge base powered by LanceDB + Multimodal Embedding (Qwen3-VL-8B)",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -30,7 +30,7 @@
   },
   "homepage": "https://github.com/njuboy11/ark-kb#readme",
   "dependencies": {
-    "@lancedb/lancedb": "^0.18.0"
+    "@lancedb/lancedb": "^0.26.2"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

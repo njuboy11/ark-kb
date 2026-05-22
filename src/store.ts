@@ -103,7 +103,7 @@ export class KnowledgeStore {
       const indices = await this.table.listIndices();
       const hasFts = indices.some((i: any) => i.name === "chunk_text_idx");
       if (!hasFts) {
-        await this.table.createIndex("chunk_text", { config: lancedb.Index.fts() });
+        await this.table.createIndex("chunk_text", { config: lancedb.Index.fts({ withPosition: true }) });
         console.log("[Ark KB] BM25 FTS index created on chunk_text");
       }
     } catch (err: any) {
@@ -169,9 +169,9 @@ export class KnowledgeStore {
     }
 
     try {
-      // Try LanceDB FTS query on chunk_text field (uses FTS index if available)
+      // Try LanceDB FTS query (explicit fts type for LanceDB 0.26+)
       const ftsResults = await this.table
-        .search(query)
+        .search(query, "fts")
         .limit(topK)
         .execute();
 
