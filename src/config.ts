@@ -2,6 +2,7 @@
  * Ark KB — Configuration Types
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint } from "./embedder.js";
 
 // ============================================================================
@@ -213,6 +214,133 @@ function detectPdfParserApi(endpoint: string, apiKey: string): "mineru" | "built
 // ============================================================================
 // Config resolver
 // ============================================================================
+
+// ============================================================================
+// Config validation (for standalone config file)
+// ============================================================================
+
+export function validateConfig(raw: unknown): string[] {
+  const errors: string[] = [];
+  if (raw === null || raw === undefined || typeof raw !== "object") {
+    errors.push("Config must be a JSON object");
+    return errors;
+  }
+  const c = raw as Record<string, unknown>;
+
+  // knowledgePath
+  if (c.knowledgePath !== undefined && typeof c.knowledgePath !== "string") {
+    errors.push("knowledgePath must be a string");
+  }
+
+  for (const section of ["storage", "embedding", "reranker", "pdfParser", "search", "chunking", "watcher", "videoSummarizer"]) {
+    if (c[section] !== undefined && (typeof c[section] !== "object" || c[section] === null)) {
+      errors.push(`${section} must be an object`);
+    }
+  }
+
+  if (c.storage) {
+    const s = c.storage as Record<string, unknown>;
+    if (s.dbPath !== undefined && typeof s.dbPath !== "string") {
+      errors.push("storage.dbPath must be a string");
+    }
+  }
+
+  if (c.embedding) {
+    const e = c.embedding as Record<string, unknown>;
+    if (e.apiKey !== undefined && typeof e.apiKey !== "string") {
+      errors.push("embedding.apiKey must be a string");
+    }
+    if (e.model !== undefined && typeof e.model !== "string") {
+      errors.push("embedding.model must be a string");
+    }
+    if (e.endpoint !== undefined && typeof e.endpoint !== "string") {
+      errors.push("embedding.endpoint must be a string");
+    }
+    if (e.dimensions !== undefined && typeof e.dimensions !== "number") {
+      errors.push("embedding.dimensions must be a number");
+    }
+  }
+
+  if (c.reranker) {
+    const r = c.reranker as Record<string, unknown>;
+    if (r.enabled !== undefined && typeof r.enabled !== "boolean") {
+      errors.push("reranker.enabled must be a boolean");
+    }
+    if (r.apiKey !== undefined && typeof r.apiKey !== "string") {
+      errors.push("reranker.apiKey must be a string");
+    }
+    if (r.model !== undefined && typeof r.model !== "string") {
+      errors.push("reranker.model must be a string");
+    }
+    if (r.endpoint !== undefined && typeof r.endpoint !== "string") {
+      errors.push("reranker.endpoint must be a string");
+    }
+    if (r.minScore !== undefined && typeof r.minScore !== "number") {
+      errors.push("reranker.minScore must be a number");
+    }
+  }
+
+  if (c.search) {
+    const s = c.search as Record<string, unknown>;
+    if (s.vectorWeight !== undefined && typeof s.vectorWeight !== "number") {
+      errors.push("search.vectorWeight must be a number");
+    }
+    if (s.topK !== undefined && typeof s.topK !== "number") {
+      errors.push("search.topK must be a number");
+    }
+    if (s.resultCount !== undefined && typeof s.resultCount !== "number") {
+      errors.push("search.resultCount must be a number");
+    }
+    if (s.bm25Enabled !== undefined && typeof s.bm25Enabled !== "boolean") {
+      errors.push("search.bm25Enabled must be a boolean");
+    }
+  }
+
+  if (c.chunking) {
+    const ch = c.chunking as Record<string, unknown>;
+    if (ch.maxTokens !== undefined && typeof ch.maxTokens !== "number") {
+      errors.push("chunking.maxTokens must be a number");
+    }
+    if (ch.overlapTokens !== undefined && typeof ch.overlapTokens !== "number") {
+      errors.push("chunking.overlapTokens must be a number");
+    }
+    if (ch.strategy !== undefined && !["paragraph", "fixed", "sentence"].includes(ch.strategy as string)) {
+      errors.push(`chunking.strategy must be one of: paragraph, fixed, sentence (got: ${ch.strategy})`);
+    }
+  }
+
+  if (c.watcher) {
+    const w = c.watcher as Record<string, unknown>;
+    if (w.enabled !== undefined && typeof w.enabled !== "boolean") {
+      errors.push("watcher.enabled must be a boolean");
+    }
+    if (w.debounceMs !== undefined && typeof w.debounceMs !== "number") {
+      errors.push("watcher.debounceMs must be a number");
+    }
+  }
+
+  return errors;
+}
+
+export function loadConfigFromFile(filePath: string): { config: ArkKBConfig | null; errors: string[] } {
+  try {
+    if (!existsSync(filePath)) {
+      return { config: null, errors: [] };
+    }
+    const raw = readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const errors = validateConfig(parsed);
+    if (errors.length > 0) {
+      return { config: null, errors };
+    }
+    return { config: parsed as ArkKBConfig, errors: [] };
+  } catch (e: unknown) {
+    if (e instanceof SyntaxError) {
+      return { config: null, errors: [`Invalid JSON: ${e.message}`] };
+    }
+    return { config: null, errors: [`Failed to read config file: ${(e as Error).message}`] };
+  }
+}
 
 export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
   const embedEndpoint = raw.embedding?.endpoint ?? "";

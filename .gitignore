@@ -4,3 +4,4 @@ node_modules/
 _*.json
 lancedb/
 test/
+plugin-config.json
