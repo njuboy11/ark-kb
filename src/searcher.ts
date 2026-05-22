@@ -232,8 +232,12 @@ export class Searcher {
     const rc = this.config.reranker!;
 
     // Split: media results need a multimodal reranker, text results use cheap text reranker
-    const textResults = results.filter(r => r.entry.file_type !== "image" && r.entry.file_type !== "video");
-    const mediaResults = results.filter(r => r.entry.file_type === "image" || r.entry.file_type === "video");
+    // Image extensions and video extensions (match processImage/store)
+    const IMG_EXTS = new Set(["png","jpg","jpeg","jfif","webp","gif","bmp","svg","tiff","tif","ico","heic","heif","raw","cr2","nef","arw"]);
+    const VID_EXTS = new Set(["mp4","mov","avi","mkv","webm","wmv","flv","m4v","3gp","ogv","ts"]);
+    const isMedia = (r) => IMG_EXTS.has(r.entry.file_type) || VID_EXTS.has(r.entry.file_type);
+    const textResults = results.filter(r => !isMedia(r));
+    const mediaResults = results.filter(r => isMedia(r));
 
     // Rerank text results with text model
     let reranked: KBSearchResult[] = [];
