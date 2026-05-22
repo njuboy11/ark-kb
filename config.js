@@ -47,6 +47,12 @@ export const DEFAULTS = {
         debounceMs: 2000,
         ignorePatterns: [".*", "~*", "*.tmp", "*.swp", "*.part"],
     },
+    videoSummarizer: {
+        enabled: false,
+        endpoint: "https://api.minimaxi.com/v1/coding_plan/vlm",
+        apiKey: "",
+        maxFrames: 100,
+    },
 };
 // ============================================================================
 // Auto-detect API protocol from endpoint URL
@@ -136,6 +142,12 @@ export function resolveConfig(raw) {
             paths: raw.watcher?.paths ?? DEFAULTS.watcher.paths,
             debounceMs: raw.watcher?.debounceMs ?? DEFAULTS.watcher.debounceMs,
             ignorePatterns: raw.watcher?.ignorePatterns ?? DEFAULTS.watcher.ignorePatterns,
+        },
+        videoSummarizer: {
+            enabled: raw.videoSummarizer?.enabled ?? DEFAULTS.videoSummarizer.enabled,
+            endpoint: raw.videoSummarizer?.endpoint ?? DEFAULTS.videoSummarizer.endpoint,
+            apiKey: raw.videoSummarizer?.apiKey ?? DEFAULTS.videoSummarizer.apiKey,
+            maxFrames: raw.videoSummarizer?.maxFrames ?? DEFAULTS.videoSummarizer.maxFrames,
         },
     };
 }

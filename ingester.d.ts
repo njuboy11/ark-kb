@@ -26,7 +26,12 @@ export declare class Ingester {
     private store;
     private embedder;
     private config;
-    constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig);
+    private videoConfig;
+    constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig, videoConfig?: {
+        endpoint: string;
+        apiKey: string;
+        maxFrames: number;
+    });
     /**
      * Ingest a single file: detect type → hash → chunk → embed → upsert.
      * Skips files with no changes (hash comparison).

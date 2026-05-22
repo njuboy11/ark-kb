@@ -49,6 +49,15 @@ export interface ArkKBConfig {
         debounceMs?: number;
         ignorePatterns?: string[];
     };
+    /** Video summarization via VLM (e.g. MiniMax /v1/coding_plan/vlm) */
+    videoSummarizer?: {
+        enabled?: boolean;
+        provider?: string;
+        endpoint?: string;
+        apiKey?: string;
+        /** Max frames to send to VLM (default 100) */
+        maxFrames?: number;
+    };
 }
 export interface ResolvedConfig {
     knowledgePath: string;
@@ -100,6 +109,12 @@ export interface ResolvedConfig {
         paths: string[];
         debounceMs: number;
         ignorePatterns: string[];
+    };
+    videoSummarizer: {
+        enabled: boolean;
+        endpoint: string;
+        apiKey: string;
+        maxFrames: number;
     };
 }
 export declare const DEFAULTS: Omit<ResolvedConfig, "knowledgePath">;

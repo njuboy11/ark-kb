@@ -45,6 +45,10 @@ export class ArkKB {
         this.ingester = new Ingester(this.store, this.embedder, {
             chunking: this.config.chunking,
             pdfParser: this.config.pdfParser,
+        }, {
+            endpoint: this.config.videoSummarizer.endpoint,
+            apiKey: this.config.videoSummarizer.apiKey,
+            maxFrames: this.config.videoSummarizer.maxFrames,
         });
         this.searcher = new Searcher(this.store, this.embedder, this.config.knowledgePath, {
             search: this.config.search,

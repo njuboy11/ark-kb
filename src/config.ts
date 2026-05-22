@@ -56,6 +56,15 @@ export interface ArkKBConfig {
     debounceMs?: number;
     ignorePatterns?: string[];
   };
+  /** Video summarization via VLM (e.g. MiniMax /v1/coding_plan/vlm) */
+  videoSummarizer?: {
+    enabled?: boolean;
+    provider?: string;
+    endpoint?: string;
+    apiKey?: string;
+    /** Max frames to send to VLM (default 100) */
+    maxFrames?: number;
+  };
 }
 
 // ============================================================================
@@ -113,6 +122,12 @@ export interface ResolvedConfig {
     debounceMs: number;
     ignorePatterns: string[];
   };
+  videoSummarizer: {
+    enabled: boolean;
+    endpoint: string;
+    apiKey: string;
+    maxFrames: number;
+  };
 }
 
 export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
@@ -159,6 +174,12 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
     paths: [],
     debounceMs: 2000,
     ignorePatterns: [".*", "~*", "*.tmp", "*.swp", "*.part"],
+  },
+  videoSummarizer: {
+    enabled: false,
+    endpoint: "https://api.minimaxi.com/v1/coding_plan/vlm",
+    apiKey: "",
+    maxFrames: 100,
   },
 };
 
@@ -248,6 +269,12 @@ export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
       paths: raw.watcher?.paths ?? DEFAULTS.watcher.paths,
       debounceMs: raw.watcher?.debounceMs ?? DEFAULTS.watcher.debounceMs,
       ignorePatterns: raw.watcher?.ignorePatterns ?? DEFAULTS.watcher.ignorePatterns,
+    },
+    videoSummarizer: {
+      enabled: raw.videoSummarizer?.enabled ?? DEFAULTS.videoSummarizer.enabled,
+      endpoint: raw.videoSummarizer?.endpoint ?? DEFAULTS.videoSummarizer.endpoint,
+      apiKey: raw.videoSummarizer?.apiKey ?? DEFAULTS.videoSummarizer.apiKey,
+      maxFrames: raw.videoSummarizer?.maxFrames ?? DEFAULTS.videoSummarizer.maxFrames,
     },
   };
 }

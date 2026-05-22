@@ -9,6 +9,7 @@ import { extname, basename, join } from "node:path";
 import { createHash } from "node:crypto";
 import { KnowledgeStore, KBEntry } from "./store.js";
 import { Embedder, exposeMediaFile } from "./embedder.js";
+import { summarizeVideo } from "./video.js";
 import { dirname } from "node:path";
 import { IngesterConfig } from "./index.js";
 
@@ -389,6 +390,81 @@ async function processImage(
   ];
 }
 
+async function processVideo(
+  filePath: string,
+  embedder: Embedder,
+  vlmConfig: { endpoint: string; apiKey: string; maxFrames: number },
+): Promise<KBEntry[]> {
+  const base = basename(filePath);
+  const fileHash = await hashFile(filePath);
+  const now = Date.now();
+
+  const summarize = vlmConfig.apiKey && vlmConfig.endpoint;
+
+  if (!summarize) {
+    console.log("[Ark KB] Video summarizer not configured, embedding filename only");
+    const vectors = await embedder.embed([basename(filePath)]);
+    return [{
+      id: base + "_0_" + now,
+      chunk_text: "[Video: " + base + "]",
+      vector: vectors[0],
+      source_path: base,
+      chunk_index: 0,
+      total_chunks: 1,
+      images: "[]",
+      file_type: extname(filePath).slice(1),
+      file_hash: fileHash,
+      created_at: now,
+      updated_at: now,
+    }];
+  }
+
+  try {
+    const result = await summarizeVideo(filePath, {
+      apiKey: vlmConfig.apiKey,
+      endpoint: vlmConfig.endpoint,
+      timeoutMs: 120_000,
+      maxFrames: vlmConfig.maxFrames ?? 100,
+      tileSize: 10,
+    });
+
+    const chunks = chunkText(result.summary, { maxTokens: 400, overlapTokens: 50, strategy: "paragraph" });
+    if (chunks.length === 0) chunks.push(result.summary);
+    const chunkVectors = await embedder.embed(chunks);
+
+    return chunks.map((text, i) => ({
+      id: base + "_" + i + "_" + now,
+      chunk_text: text,
+      vector: chunkVectors[i],
+      source_path: base,
+      chunk_index: i,
+      total_chunks: chunks.length,
+      images: "[]",
+      file_type: extname(filePath).slice(1),
+      file_hash: fileHash,
+      created_at: now,
+      updated_at: now,
+    }));
+  } catch (err: any) {
+    console.error("[Ark KB] Video summary failed for " + filePath + ": " + err.message);
+    const vectors = await embedder.embed([basename(filePath)]);
+    return [{
+      id: base + "_0_" + now,
+      chunk_text: "[Video: " + base + "]",
+      vector: vectors[0],
+      source_path: base,
+      chunk_index: 0,
+      total_chunks: 1,
+      images: "[]",
+      file_type: extname(filePath).slice(1),
+      file_hash: fileHash,
+      created_at: now,
+      updated_at: now,
+    }];
+  }
+}
+
+
 // ============================================================================
 // PDF processing
 // ============================================================================
@@ -450,11 +526,14 @@ export class Ingester {
   private store: KnowledgeStore;
   private embedder: Embedder;
   private config: IngesterConfig;
+  private videoConfig = { endpoint: "", apiKey: "", maxFrames: 100 };
 
-  constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig) {
+  constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig, videoConfig?: { endpoint: string; apiKey: string; maxFrames: number }) {
     this.store = store;
     this.embedder = embedder;
     this.config = config;
+    if (videoConfig) this.videoConfig = videoConfig;
+    if ((config as any)._videoConfig) this.videoConfig = (config as any)._videoConfig;
   }
 
   /**
