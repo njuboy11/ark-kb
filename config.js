@@ -11,7 +11,7 @@ export const DEFAULTS = {
         apiKey: "",
         model: "Qwen/Qwen3-VL-Embedding-8B",
         dimensions: 4096,
-        batchSize: 8,
+        batchSize: 10,
     },
     reranker: {
         api: "none",
