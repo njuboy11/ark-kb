@@ -13,11 +13,12 @@ export interface ArkKBConfig {
         dimensions?: number;
     };
     reranker?: {
+        /** Set to false to disable reranking entirely */
+        enabled?: boolean;
         endpoint?: string;
         apiKey?: string;
         model?: string;
         minScore?: number;
-        /** Multimodal reranker for image/video results (falls back to text if not set) */
         multimodal?: {
             endpoint?: string;
             apiKey?: string;
@@ -63,6 +64,7 @@ export interface ResolvedConfig {
         batchSize: number;
     };
     reranker: {
+        enabled: boolean;
         api: "siliconflow" | "cohere" | "custom" | "none";
         endpoint: string;
         apiKey: string;

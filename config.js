@@ -15,6 +15,7 @@ export const DEFAULTS = {
         batchSize: 16,
     },
     reranker: {
+        enabled: true,
         api: "none",
         endpoint: "https://api.siliconflow.cn/v1/rerank",
         apiKey: "",
@@ -103,6 +104,7 @@ export function resolveConfig(raw) {
             batchSize: resolveEmbeddingBatchSize(detectEmbeddingApi(embedEndpoint), embedModel),
         },
         reranker: {
+            enabled: raw.reranker?.enabled ?? DEFAULTS.reranker.enabled,
             api: detectRerankerApi(rerankEndpoint, rerankApiKey),
             endpoint: rerankEndpoint,
             apiKey: rerankApiKey,

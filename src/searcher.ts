@@ -171,7 +171,7 @@ export class Searcher {
 
     // 6. Optional reranking
     let finalResults: KBSearchResult[];
-    if (options.rerankerEnabled && this.config.reranker?.api && this.config.reranker.api !== "none") {
+    if (options.rerankerEnabled !== false && this.config.reranker?.enabled !== false && this.config.reranker?.api && this.config.reranker.api !== "none") {
       finalResults = await this.applyReranker(
         fusedResults.map(r => ({ entry: r.entry, score: r.fusedScore })),
         options.query,
