@@ -61,11 +61,6 @@
         "description": "Embedding API configuration",
         "default": {},
         "properties": {
-          "api": {
-            "type": "string",
-            "description": "Embedding API provider: dashscope | siliconflow | openai | custom",
-            "default": "siliconflow"
-          },
           "endpoint": {
             "type": "string",
             "description": "Embedding API endpoint URL",
@@ -97,11 +92,6 @@
         "description": "PDF parsing configuration",
         "default": {},
         "properties": {
-          "api": {
-            "type": "string",
-            "description": "PDF parser: mineru | builtin | none",
-            "default": "builtin"
-          },
           "endpoint": {
             "type": "string",
             "description": "MinerU API endpoint URL"
@@ -122,11 +112,6 @@
         "description": "Reranker configuration for precision scoring",
         "default": {},
         "properties": {
-          "api": {
-            "type": "string",
-            "description": "Reranker API: siliconflow | cohere | custom | none",
-            "default": "siliconflow"
-          },
           "endpoint": {
             "type": "string",
             "description": "Reranker API endpoint URL"

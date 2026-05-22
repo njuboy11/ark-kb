@@ -7,7 +7,7 @@ export const DEFAULTS = {
     },
     embedding: {
         api: "siliconflow",
-        endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
+        endpoint: "https://api.siliconflow.cn/v1/embeddings",
         apiKey: "",
         model: "Qwen3-VL-Embedding-8B",
         dimensions: 4096,
@@ -45,31 +45,71 @@ export const DEFAULTS = {
         ignorePatterns: [".*", "~*", "*.tmp", "*.swp", "*.part"],
     },
 };
+// ============================================================================
+// Auto-detect API protocol from endpoint URL
+// ============================================================================
+function detectEmbeddingApi(endpoint) {
+    const u = endpoint.toLowerCase();
+    if (u.includes("siliconflow"))
+        return "siliconflow";
+    if (u.includes("dashscope") || u.includes("aliyun"))
+        return "dashscope";
+    if (u.includes("openai"))
+        return "openai";
+    return "custom";
+}
+function detectRerankerApi(endpoint, apiKey) {
+    if (!apiKey)
+        return "none";
+    const u = endpoint.toLowerCase();
+    if (u.includes("siliconflow"))
+        return "siliconflow";
+    if (u.includes("cohere"))
+        return "cohere";
+    return "custom";
+}
+function detectPdfParserApi(endpoint, apiKey) {
+    if (!apiKey)
+        return "none";
+    const u = endpoint.toLowerCase();
+    if (u.includes("mineru"))
+        return "mineru";
+    return "builtin";
+}
+// ============================================================================
+// Config resolver
+// ============================================================================
 export function resolveConfig(raw) {
+    const embedEndpoint = raw.embedding?.endpoint ?? DEFAULTS.embedding.endpoint;
+    const embedApiKey = raw.embedding?.apiKey ?? process.env.ARK_KB_EMBEDDING_API_KEY ?? DEFAULTS.embedding.apiKey;
+    const rerankEndpoint = raw.reranker?.endpoint ?? DEFAULTS.reranker.endpoint;
+    const rerankApiKey = raw.reranker?.apiKey ?? process.env.ARK_KB_RERANKER_API_KEY ?? DEFAULTS.reranker.apiKey;
+    const pdfEndpoint = raw.pdfParser?.endpoint ?? DEFAULTS.pdfParser.endpoint;
+    const pdfApiKey = raw.pdfParser?.apiKey ?? DEFAULTS.pdfParser.apiKey;
     return {
         knowledgePath: raw.knowledgePath ?? process.env.ARK_KB_KNOWLEDGE_PATH ?? "",
         storage: {
             dbPath: raw.storage?.dbPath ?? DEFAULTS.storage.dbPath,
         },
         embedding: {
-            api: raw.embedding?.api ?? DEFAULTS.embedding.api,
-            endpoint: raw.embedding?.endpoint ?? DEFAULTS.embedding.endpoint,
-            apiKey: raw.embedding?.apiKey ?? process.env.ARK_KB_EMBEDDING_API_KEY ?? DEFAULTS.embedding.apiKey,
+            api: detectEmbeddingApi(embedEndpoint),
+            endpoint: embedEndpoint,
+            apiKey: embedApiKey,
             model: raw.embedding?.model ?? DEFAULTS.embedding.model,
             dimensions: raw.embedding?.dimensions ?? DEFAULTS.embedding.dimensions,
             batchSize: raw.embedding?.batchSize ?? DEFAULTS.embedding.batchSize,
         },
         reranker: {
-            api: raw.reranker?.api ?? DEFAULTS.reranker.api,
-            endpoint: raw.reranker?.endpoint ?? DEFAULTS.reranker.endpoint,
-            apiKey: raw.reranker?.apiKey ?? process.env.ARK_KB_RERANKER_API_KEY ?? DEFAULTS.reranker.apiKey,
+            api: detectRerankerApi(rerankEndpoint, rerankApiKey),
+            endpoint: rerankEndpoint,
+            apiKey: rerankApiKey,
             model: raw.reranker?.model ?? DEFAULTS.reranker.model,
             minScore: raw.reranker?.minScore ?? DEFAULTS.reranker.minScore,
         },
         pdfParser: {
-            api: raw.pdfParser?.api ?? DEFAULTS.pdfParser.api,
-            endpoint: raw.pdfParser?.endpoint ?? DEFAULTS.pdfParser.endpoint,
-            apiKey: raw.pdfParser?.apiKey ?? DEFAULTS.pdfParser.apiKey,
+            api: detectPdfParserApi(pdfEndpoint, pdfApiKey),
+            endpoint: pdfEndpoint,
+            apiKey: pdfApiKey,
             model: raw.pdfParser?.model ?? DEFAULTS.pdfParser.model,
         },
         search: {

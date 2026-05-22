@@ -7,7 +7,6 @@ export interface ArkKBConfig {
         dbPath?: string;
     };
     embedding?: {
-        api?: "siliconflow" | "dashscope" | "openai" | "custom";
         endpoint?: string;
         apiKey?: string;
         model?: string;
@@ -15,14 +14,12 @@ export interface ArkKBConfig {
         batchSize?: number;
     };
     reranker?: {
-        api?: "siliconflow" | "cohere" | "custom" | "none";
         endpoint?: string;
         apiKey?: string;
         model?: string;
         minScore?: number;
     };
     pdfParser?: {
-        api?: "mineru" | "builtin" | "none";
         endpoint?: string;
         apiKey?: string;
         model?: string;
