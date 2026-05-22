@@ -27,6 +27,8 @@ export interface SourceContent {
     full_text: string;
 }
 export declare class Searcher {
+    private static IMG_EXTS;
+    private static VID_EXTS;
     private store;
     private embedder;
     private knowledgePath;

@@ -108,6 +108,9 @@ function resolveRerankerMinScore(api: string, model: string, userMinScore?: numb
 // ============================================================================
 
 export class Searcher {
+  private static IMG_EXTS = new Set(["png","jpg","jpeg","jfif","webp","gif","bmp","svg","tiff","tif","ico","heic","heif","raw","cr2","nef","arw"]);
+  private static VID_EXTS = new Set(["mp4","mov","avi","mkv","webm","wmv","flv","m4v","3gp","ogv","ts"]);
+
   private store: KnowledgeStore;
   private embedder: Embedder;
   private knowledgePath: string;
@@ -233,9 +236,7 @@ export class Searcher {
 
     // Split: media results need a multimodal reranker, text results use cheap text reranker
     // Image extensions and video extensions (match processImage/store)
-    const IMG_EXTS = new Set(["png","jpg","jpeg","jfif","webp","gif","bmp","svg","tiff","tif","ico","heic","heif","raw","cr2","nef","arw"]);
-    const VID_EXTS = new Set(["mp4","mov","avi","mkv","webm","wmv","flv","m4v","3gp","ogv","ts"]);
-    const isMedia = (r) => IMG_EXTS.has(r.entry.file_type) || VID_EXTS.has(r.entry.file_type);
+    const isMedia = (r: KBSearchResult) => Searcher.IMG_EXTS.has(r.entry.file_type) || Searcher.VID_EXTS.has(r.entry.file_type);
     const textResults = results.filter(r => !isMedia(r));
     const mediaResults = results.filter(r => isMedia(r));
 
@@ -283,7 +284,7 @@ export class Searcher {
       const documents: string[] = [];
       for (const r of results) {
         const ft = r.entry.file_type || "";
-        if (ft === "image" || ft === "video" || ft.startsWith("image/") || ft.startsWith("video/")) {
+        if (Searcher.IMG_EXTS.has(ft) || Searcher.VID_EXTS.has(ft)) {
           const url = await this.exposeMediaUrl(r.entry.source_path);
           documents.push(url || r.entry.chunk_text);
         } else {
