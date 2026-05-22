@@ -98,12 +98,16 @@ export class KnowledgeStore {
       await this.table.delete('id = "dummy_init"');
     }
 
-    // Ensure FTS index exists for BM25 search
-    const indices = await this.table.listIndices();
-    const hasFts = indices.some((i: any) => i.name === "chunk_text_idx");
-    if (!hasFts) {
-      await this.table.createIndex("chunk_text", { config: lancedb.Index.fts() });
-      console.log("[Ark KB] BM25 FTS index created on chunk_text");
+    // Ensure FTS index exists for BM25 search (always recreate if missing)
+    try {
+      const indices = await this.table.listIndices();
+      const hasFts = indices.some((i: any) => i.name === "chunk_text_idx");
+      if (!hasFts) {
+        await this.table.createIndex("chunk_text", { config: lancedb.Index.fts() });
+        console.log("[Ark KB] BM25 FTS index created on chunk_text");
+      }
+    } catch (err: any) {
+      console.warn("[Ark KB] Failed to create FTS index:", err.message);
     }
 
     console.log(`[Ark KB] LanceDB connected: ${dbDir}`);
