@@ -17,8 +17,8 @@ const SUPPORTED_TEXT_EXTS = new Set([
     ".rs", ".rb", ".php", ".sh", ".bash",
     ".sql", ".r", ".scala", ".lua", ".toml",
 ]);
-const SUPPORTED_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
-const SUPPORTED_VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm"]);
+const SUPPORTED_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".jfif", ".webp", ".gif", ".bmp", ".svg", ".tiff", ".tif", ".ico", ".heic", ".heif", ".raw", ".cr2", ".nef", ".arw"]);
+const SUPPORTED_VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".3gp", ".ogv", ".ts"]);
 export function detectFileKind(filePath) {
     const ext = extname(filePath).toLowerCase();
     if (SUPPORTED_TEXT_EXTS.has(ext))
