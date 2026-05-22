@@ -70,12 +70,12 @@ const RERANKER_PRESETS: Record<string, Record<string, RerankerPreset>> = {
     "Qwen/Qwen3-Reranker-8B": {
       endpoint: "https://api.siliconflow.cn/v1/rerank",
       model: "Qwen/Qwen3-Reranker-8B",
-      minScore: 0.01,
+      minScore: 0.05,
     },
     "Qwen/Qwen3-VL-Reranker-8B": {
       endpoint: "https://api.siliconflow.cn/v1/rerank",
       model: "Qwen/Qwen3-VL-Reranker-8B",
-      minScore: 0.01,
+      minScore: 0.05,
     },
   },
   cohere: {
