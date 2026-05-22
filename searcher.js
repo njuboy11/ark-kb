@@ -201,21 +201,21 @@ export class Searcher {
                 case "siliconflow":
                     response = await fetch(endpoint, {
                         method: "POST",
-                        headers: { "Content-Type": "application/json", "Authorization": "*** " + apiKey },
+                        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey },
                         body: JSON.stringify({ model: resolvedModel, query, documents, return_documents: false }),
                     });
                     break;
                 case "cohere":
                     response = await fetch(endpoint, {
                         method: "POST",
-                        headers: { "Content-Type": "application/json", "Authorization": "*** " + apiKey },
+                        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey },
                         body: JSON.stringify({ model: resolvedModel, query, documents, top_n: documents.length, return_documents: false }),
                     });
                     break;
                 case "custom":
                     response = await fetch(endpoint, {
                         method: "POST",
-                        headers: { "Content-Type": "application/json", "Authorization": "*** " + apiKey },
+                        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey },
                         body: JSON.stringify({ model: resolvedModel, query, documents }),
                     });
                     break;
