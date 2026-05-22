@@ -4,6 +4,31 @@
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+const RERANKER_PRESETS = {
+    siliconflow: {
+        "BAAI/bge-reranker-v2-m3": {
+            endpoint: "https://api.siliconflow.cn/v1/rerank",
+            model: "BAAI/bge-reranker-v2-m3",
+        },
+    },
+    cohere: {
+        "rerank-multilingual-v3.0": {
+            endpoint: "https://api.cohere.ai/v1/rerank",
+            model: "rerank-multilingual-v3.0",
+        },
+    },
+};
+function resolveRerankerEndpoint(api, model, userEndpoint) {
+    if (userEndpoint)
+        return userEndpoint;
+    return RERANKER_PRESETS[api]?.[model]?.endpoint ?? "";
+}
+function resolveRerankerModel(api, model, userModel) {
+    const preset = RERANKER_PRESETS[api]?.[model];
+    if (preset)
+        return preset.model;
+    return userModel ?? model;
+}
 // ============================================================================
 // Searcher
 // ============================================================================
@@ -107,26 +132,28 @@ export class Searcher {
     async applyReranker(results, query, minScore) {
         if (results.length === 0)
             return [];
-        const rerankerConfig = this.config.reranker;
-        const endpoint = rerankerConfig.endpoint || this.getDefaultRerankerEndpoint(rerankerConfig.api);
-        const apiKey = rerankerConfig.apiKey;
+        const rc = this.config.reranker;
+        const apiKey = rc.apiKey;
         if (!apiKey) {
             console.warn("[Ark KB] Reranker API key not configured, skipping rerank");
             return results;
         }
+        // Resolve endpoint/model from registry (user overrides take priority)
+        const endpoint = resolveRerankerEndpoint(rc.api, rc.model, rc.endpoint);
+        const model = resolveRerankerModel(rc.api, rc.model);
         try {
             const documents = results.map(r => r.entry.chunk_text);
             let response;
-            switch (rerankerConfig.api) {
+            switch (rc.api) {
                 case "siliconflow":
-                    response = await fetch(endpoint || "https://api.siliconflow.cn/v1/rerank", {
+                    response = await fetch(endpoint, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
                             "Authorization": `Bearer ${apiKey}`,
                         },
                         body: JSON.stringify({
-                            model: rerankerConfig.model || "BAAI/bge-m3",
+                            model,
                             query,
                             documents,
                             return_documents: false,
@@ -134,14 +161,14 @@ export class Searcher {
                     });
                     break;
                 case "cohere":
-                    response = await fetch(endpoint || "https://api.cohere.ai/v1/rerank", {
+                    response = await fetch(endpoint, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
                             "Authorization": `Bearer ${apiKey}`,
                         },
                         body: JSON.stringify({
-                            model: rerankerConfig.model || "rerank-multilingual-v3.0",
+                            model,
                             query,
                             documents,
                             top_n: documents.length,
@@ -157,7 +184,7 @@ export class Searcher {
                             "Authorization": `Bearer ${apiKey}`,
                         },
                         body: JSON.stringify({
-                            model: rerankerConfig.model,
+                            model,
                             query,
                             documents,
                         }),
@@ -200,13 +227,6 @@ export class Searcher {
         catch (err) {
             console.warn(`[Ark KB] Reranker exception: ${err.message}, falling back to fusion scores`);
             return results;
-        }
-    }
-    getDefaultRerankerEndpoint(api) {
-        switch (api) {
-            case "siliconflow": return "https://api.siliconflow.cn/v1/rerank";
-            case "cohere": return "https://api.cohere.ai/v1/rerank";
-            default: return "";
         }
     }
 }

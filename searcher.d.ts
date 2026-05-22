@@ -44,6 +44,5 @@ export declare class Searcher {
      * Apply reranker API for precision re-ranking.
      */
     private applyReranker;
-    private getDefaultRerankerEndpoint;
 }
 //# sourceMappingURL=searcher.d.ts.map
