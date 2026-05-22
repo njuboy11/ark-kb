@@ -237,7 +237,7 @@ export class Searcher {
                     .filter((r) => r.relevance_score >= minScore)
                     .map((r) => ({ entry: results[r.index].entry, score: r.relevance_score }))
                     .sort((a, b) => b.score - a.score);
-                return scored.length > 0 ? scored : results;
+                return scored;
             }
             console.warn("[Ark KB] Unknown reranker response format, returning un-scored results");
             return results;
@@ -266,15 +266,8 @@ export class Searcher {
 // Score normalization (min-max to [0,1])
 // ============================================================================
 function normalizeScores(results) {
-    if (results.length === 0)
-        return [];
-    const scores = results.map(r => r.score);
-    const min = Math.min(...scores);
-    const max = Math.max(...scores);
-    const range = max - min;
-    if (range === 0)
-        return results.map(r => ({ ...r, score: 1 }));
-    // Lower distance = better match → invert so 1.0 = best, 0.0 = worst
-    return results.map(r => ({ ...r, score: 1 - (r.score - min) / range }));
+    // Exponential decay: distance → similarity. d=0 → 1.0, d=1 → 0.5, d=2 → 0.33
+    // No min-max — irrelevant items naturally decay to near-zero.
+    return results.map(r => ({ ...r, score: 1 / (1 + r.score) }));
 }
 //# sourceMappingURL=searcher.js.map
