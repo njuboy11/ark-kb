@@ -30,7 +30,7 @@ export const DEFAULTS = {
         params: {},
     },
     search: {
-        vectorWeight: 0.7,
+        vectorWeight: 1.0,
         topK: 20,
         resultCount: 6,
         bm25Enabled: true,
