@@ -63,6 +63,14 @@ const RERANKER_PRESETS: Record<string, Record<string, RerankerPreset>> = {
       endpoint: "https://api.siliconflow.cn/v1/rerank",
       model: "BAAI/bge-reranker-v2-m3",
     },
+    "Qwen/Qwen3-Reranker-8B": {
+      endpoint: "https://api.siliconflow.cn/v1/rerank",
+      model: "Qwen/Qwen3-Reranker-8B",
+    },
+    "Qwen/Qwen3-VL-Reranker-8B": {
+      endpoint: "https://api.siliconflow.cn/v1/rerank",
+      model: "Qwen/Qwen3-VL-Reranker-8B",
+    },
   },
   cohere: {
     "rerank-multilingual-v3.0": {
