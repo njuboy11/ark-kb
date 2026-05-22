@@ -259,7 +259,7 @@ export class Searcher {
           }))
           .sort((a: any, b: any) => b.score - a.score);
 
-        return scored;
+        return scored.length > 0 ? scored : results;
       }
 
       // Cohere format: { results: [{ index, relevance }] }
@@ -272,7 +272,7 @@ export class Searcher {
           }))
           .sort((a: any, b: any) => b.score - a.score);
 
-        return scored;
+        return scored.length > 0 ? scored : results;
       }
 
       console.warn("[Ark KB] Unknown reranker response format, returning un-scored results");
