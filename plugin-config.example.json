@@ -1,0 +1,59 @@
+{
+  "knowledgePath": "/root/.openclaw/workspace/knowledge",
+  "storage": {
+    "dbPath": "~/.ark-kb/lancedb-v2"
+  },
+  "embedding": {
+    "model": "Qwen/Qwen3-VL-Embedding-8B",
+    "apiKey": "YOUR_API_KEY_HERE",
+    "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+    "dimensions": 4096
+  },
+  "reranker": {
+    "model": "Qwen/Qwen3-Reranker-8B",
+    "apiKey": "YOUR_API_KEY_HERE",
+    "minScore": 0.35,
+    "multimodal": {
+      "model": "Qwen/Qwen3-VL-Reranker-8B",
+      "apiKey": "YOUR_API_KEY_HERE"
+    },
+    "enabled": true
+  },
+  "search": {
+    "vectorWeight": 1.0,
+    "topK": 20,
+    "resultCount": 6
+  },
+  "chunking": {
+    "maxTokens": 400,
+    "overlapTokens": 50,
+    "strategy": "paragraph"
+  },
+  "pdfParser": {
+    "endpoint": "https://mineru.net/api/v4/extract/task",
+    "apiKey": "YOUR_API_KEY_HERE",
+    "model": "doclayout_onnx",
+    "params": {
+      "enable_formula": true,
+      "enable_table": true
+    }
+  },
+  "watcher": {
+    "enabled": true,
+    "paths": [],
+    "debounceMs": 2000,
+    "ignorePatterns": [
+      ".*",
+      "~*",
+      "*.tmp",
+      "*.swp",
+      "*.part"
+    ]
+  },
+  "videoSummarizer": {
+    "enabled": true,
+    "endpoint": "https://api.minimaxi.com/v1/coding_plan/vlm",
+    "apiKey": "YOUR_API_KEY_HERE",
+    "maxFrames": 100
+  }
+}

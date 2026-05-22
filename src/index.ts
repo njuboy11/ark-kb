@@ -4,7 +4,7 @@
  * Exports definePluginEntry-compatible register function for OpenClaw.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { KnowledgeStore } from "./store.js";
@@ -263,15 +263,35 @@ export function register(api: {
   }
 
   let arkConfig: ArkKBConfig;
+  let fromOpenClaw = false;
+
   if (fileResult.config) {
     console.log("[Ark KB] Loading config from standalone file:", standalonePath);
     arkConfig = fileResult.config;
   } else {
-    // No standalone file → fall back to openclaw.json
-    console.log("[Ark KB] No standalone config found, falling back to openclaw.json");
-    arkConfig = (api.pluginConfig ?? api.config ?? {}) as ArkKBConfig;
+    // No standalone file → try to auto-create from example, then fall back to openclaw.json
+    const examplePath = join(pluginDir, "plugin-config.example.json");
+    if (existsSync(examplePath)) {
+      console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
+      copyFileSync(examplePath, standalonePath);
+      console.log("[Ark KB] Created", standalonePath, "— edit this file to configure.");
+      const retry = loadConfigFromFile(standalonePath);
+      if (retry.config) {
+        arkConfig = retry.config;
+      } else {
+        console.log("[Ark KB] Falling back to openclaw.json");
+        arkConfig = (api.pluginConfig ?? api.config ?? {}) as ArkKBConfig;
+        fromOpenClaw = true;
+      }
+    } else {
+      console.log("[Ark KB] No config files found, falling back to openclaw.json");
+      arkConfig = (api.pluginConfig ?? api.config ?? {}) as ArkKBConfig;
+      fromOpenClaw = true;
+    }
+  }
 
-    // Still validate the fallback config
+  // Validate fallback config when loaded from openclaw.json
+  if (fromOpenClaw) {
     const fallbackErrors = validateConfig(arkConfig);
     if (fallbackErrors.length > 0) {
       console.error("[Ark KB] Config validation FAILED (openclaw.json):");
