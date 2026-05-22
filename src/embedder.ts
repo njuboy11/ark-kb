@@ -24,6 +24,44 @@ export interface EmbedResult {
 }
 
 // ============================================================================
+// Model registry — hardcoded vendor/model parameters
+// Users should NOT need to configure these.  If a model is missing, defaults apply.
+// ============================================================================
+
+interface ModelPreset {
+  /** Max batch size the model/API accepts */
+  batchSize: number;
+  /**
+   * Request body format: "openai" = flat array, "dashscope" = nested documents.
+   * Auto-detected from endpoint URL by default — only set for models that
+   * deviate from their vendor's standard format.
+   */
+  format?: "openai" | "dashscope";
+}
+
+const EMBEDDING_MODEL_PRESETS: Record<string, ModelPreset> = {
+  // DashScope / Alibaba
+  "text-embedding-v4":   { batchSize: 10 },
+  "text-embedding-v3":   { batchSize: 10 },
+  "text-embedding-v2":   { batchSize: 10 },
+
+  // SiliconFlow multimodal
+  "Qwen/Qwen3-VL-Embedding-8B": { batchSize: 16 },
+
+  // OpenAI
+  "text-embedding-3-large": { batchSize: 2048 },
+  "text-embedding-3-small": { batchSize: 2048 },
+  "text-embedding-ada-002": { batchSize: 2048 },
+};
+
+/** Resolve batch size from model registry, falling back to config or default */
+export function resolveEmbeddingBatchSize(model: string, configBatchSize?: number): number {
+  const preset = EMBEDDING_MODEL_PRESETS[model];
+  if (preset) return preset.batchSize;
+  return configBatchSize ?? 16; // conservative default
+}
+
+// ============================================================================
 // Embedder
 // ============================================================================
 
@@ -45,10 +83,13 @@ export class Embedder {
     const allEmbeddings: number[][] = [];
 
     // Process in batches
-    for (let i = 0; i < inputs.length; i += this.config.batchSize) {
-      const batch = inputs.slice(i, i + this.config.batchSize);
-      const batchResult = await this.embedBatchWithRetry(batch);
-      allEmbeddings.push(...batchResult.embeddings);
+    const batchSize = this.config.batchSize;
+    for (let i = 0; i < inputs.length; i += batchSize) {
+      const batch = inputs.slice(i, i + batchSize);
+      const result = await this.embedBatchWithRetry(batch);
+      for (const emb of result.embeddings) {
+        allEmbeddings.push(emb);
+      }
     }
 
     return allEmbeddings;
@@ -80,7 +121,7 @@ export class Embedder {
 
     switch (api) {
       case "dashscope":
-        // DashScope /compatible-mode endpoint uses OpenAI flat format
+        // DashScope /compatible-mode endpoint uses OpenAI-compatible flat format
         if (endpoint.includes("compatible-mode")) {
           headers["Authorization"] = `Bearer ${apiKey}`;
           body = { model, input: inputs, dimensions };

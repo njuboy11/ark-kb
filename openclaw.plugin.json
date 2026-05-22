@@ -79,11 +79,6 @@
             "type": "number",
             "description": "Embedding vector dimensions",
             "default": 4096
-          },
-          "batchSize": {
-            "type": "number",
-            "description": "Max texts per embedding batch request",
-            "default": 16
           }
         }
       },

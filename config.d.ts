@@ -11,7 +11,6 @@ export interface ArkKBConfig {
         apiKey?: string;
         model?: string;
         dimensions?: number;
-        batchSize?: number;
     };
     reranker?: {
         endpoint?: string;

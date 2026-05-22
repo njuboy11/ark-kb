@@ -3,6 +3,25 @@
  * Multi-API embedder supporting DashScope, SiliconFlow, OpenAI, and custom endpoints.
  * Batch embedding with configurable batch size and exponential backoff retries.
  */
+const EMBEDDING_MODEL_PRESETS = {
+    // DashScope / Alibaba
+    "text-embedding-v4": { batchSize: 10 },
+    "text-embedding-v3": { batchSize: 10 },
+    "text-embedding-v2": { batchSize: 10 },
+    // SiliconFlow multimodal
+    "Qwen/Qwen3-VL-Embedding-8B": { batchSize: 16 },
+    // OpenAI
+    "text-embedding-3-large": { batchSize: 2048 },
+    "text-embedding-3-small": { batchSize: 2048 },
+    "text-embedding-ada-002": { batchSize: 2048 },
+};
+/** Resolve batch size from model registry, falling back to config or default */
+export function resolveEmbeddingBatchSize(model, configBatchSize) {
+    const preset = EMBEDDING_MODEL_PRESETS[model];
+    if (preset)
+        return preset.batchSize;
+    return configBatchSize ?? 16; // conservative default
+}
 // ============================================================================
 // Embedder
 // ============================================================================
@@ -21,10 +40,13 @@ export class Embedder {
             return [];
         const allEmbeddings = [];
         // Process in batches
-        for (let i = 0; i < inputs.length; i += this.config.batchSize) {
-            const batch = inputs.slice(i, i + this.config.batchSize);
-            const batchResult = await this.embedBatchWithRetry(batch);
-            allEmbeddings.push(...batchResult.embeddings);
+        const batchSize = this.config.batchSize;
+        for (let i = 0; i < inputs.length; i += batchSize) {
+            const batch = inputs.slice(i, i + batchSize);
+            const result = await this.embedBatchWithRetry(batch);
+            for (const emb of result.embeddings) {
+                allEmbeddings.push(emb);
+            }
         }
         return allEmbeddings;
     }
@@ -51,7 +73,7 @@ export class Embedder {
         let body;
         switch (api) {
             case "dashscope":
-                // DashScope /compatible-mode endpoint uses OpenAI flat format
+                // DashScope /compatible-mode endpoint uses OpenAI-compatible flat format
                 if (endpoint.includes("compatible-mode")) {
                     headers["Authorization"] = `Bearer ${apiKey}`;
                     body = { model, input: inputs, dimensions };

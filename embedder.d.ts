@@ -19,6 +19,8 @@ export interface EmbedResult {
         total_tokens: number;
     };
 }
+/** Resolve batch size from model registry, falling back to config or default */
+export declare function resolveEmbeddingBatchSize(model: string, configBatchSize?: number): number;
 export declare class Embedder {
     private config;
     constructor(config: EmbedderConfig);
