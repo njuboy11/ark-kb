@@ -24,6 +24,12 @@ export interface ArkKBConfig {
     apiKey?: string;
     model?: string;
     minScore?: number;
+    /** Multimodal reranker for image/video results (falls back to text if not set) */
+    multimodal?: {
+      endpoint?: string;
+      apiKey?: string;
+      model?: string;
+    };
   };
   pdfParser?: {
     endpoint?: string;
@@ -74,6 +80,11 @@ export interface ResolvedConfig {
     apiKey: string;
     model: string;
     minScore: number;
+    multimodal?: {
+      endpoint?: string;
+      apiKey?: string;
+      model?: string;
+    };
   };
   pdfParser: {
     api: "mineru" | "builtin" | "none";
@@ -207,6 +218,7 @@ export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
       apiKey: rerankApiKey,
       model: raw.reranker?.model ?? DEFAULTS.reranker.model,
       minScore: raw.reranker?.minScore ?? DEFAULTS.reranker.minScore,
+      multimodal: raw.reranker?.multimodal,
     },
     pdfParser: {
       api: detectPdfParserApi(pdfEndpoint, pdfApiKey),

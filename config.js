@@ -108,6 +108,7 @@ export function resolveConfig(raw) {
             apiKey: rerankApiKey,
             model: raw.reranker?.model ?? DEFAULTS.reranker.model,
             minScore: raw.reranker?.minScore ?? DEFAULTS.reranker.minScore,
+            multimodal: raw.reranker?.multimodal,
         },
         pdfParser: {
             api: detectPdfParserApi(pdfEndpoint, pdfApiKey),

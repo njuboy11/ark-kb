@@ -210,115 +210,109 @@ export class Searcher {
     if (results.length === 0) return [];
 
     const rc = this.config.reranker!;
-    const apiKey = rc.apiKey;
 
-    if (!apiKey) {
-      console.warn("[Ark KB] Reranker API key not configured, skipping rerank");
-      return results;
+    // Split: media results need a multimodal reranker, text results use cheap text reranker
+    const textResults = results.filter(r => r.entry.file_type !== "image" && r.entry.file_type !== "video");
+    const mediaResults = results.filter(r => r.entry.file_type === "image" || r.entry.file_type === "video");
+
+    // Rerank text results with text model
+    let reranked: KBSearchResult[] = [];
+    if (textResults.length > 0 && rc.apiKey) {
+      reranked = await this.callReranker(textResults, query, minScore, rc.api, rc.model, rc.apiKey, rc.endpoint);
+    } else {
+      reranked = textResults;
     }
 
-    // Resolve endpoint/model from registry (user overrides take priority)
-    const endpoint = resolveRerankerEndpoint(rc.api, rc.model, rc.endpoint);
-    const model = resolveRerankerModel(rc.api, rc.model);
+    // Rerank media results with multimodal model (if configured)
+    const mmCfg = rc.multimodal;
+    if (mediaResults.length > 0 && mmCfg?.apiKey) {
+      const mmApi = this.detectRerankerApi(mmCfg.endpoint ?? rc.endpoint, mmCfg.apiKey);
+      const mmReranked = await this.callReranker(mediaResults, query, minScore, mmApi, mmCfg.model ?? "", mmCfg.apiKey, mmCfg.endpoint ?? rc.endpoint);
+      reranked.push(...mmReranked);
+    } else {
+      // No multimodal reranker configured — keep vector scores for media
+      reranked.push(...mediaResults);
+    }
+
+    return reranked.sort((a, b) => b.score - a.score);
+  }
+
+  /** Call a single reranker API and return scored results. Falls back to input on error. */
+  private async callReranker(
+    results: KBSearchResult[],
+    query: string,
+    minScore: number,
+    api: string,
+    model: string,
+    apiKey: string,
+    userEndpoint: string,
+  ): Promise<KBSearchResult[]> {
+    if (results.length === 0) return [];
+
+    const endpoint = resolveRerankerEndpoint(api, model, userEndpoint);
+    const resolvedModel = resolveRerankerModel(api, model);
 
     try {
       const documents = results.map(r => r.entry.chunk_text);
 
       let response: Response;
 
-      switch (rc.api) {
+      switch (api) {
         case "siliconflow":
           response = await fetch(endpoint, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model,
-              query,
-              documents,
-              return_documents: false,
-            }),
+            headers: { "Content-Type": "application/json", "Authorization": "*** " + apiKey },
+            body: JSON.stringify({ model: resolvedModel, query, documents, return_documents: false }),
           });
           break;
-
         case "cohere":
           response = await fetch(endpoint, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model,
-              query,
-              documents,
-              top_n: documents.length,
-              return_documents: false,
-            }),
+            headers: { "Content-Type": "application/json", "Authorization": "*** " + apiKey },
+            body: JSON.stringify({ model: resolvedModel, query, documents, top_n: documents.length, return_documents: false }),
           });
           break;
-
         case "custom":
           response = await fetch(endpoint, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model,
-              query,
-              documents,
-            }),
+            headers: { "Content-Type": "application/json", "Authorization": "*** " + apiKey },
+            body: JSON.stringify({ model: resolvedModel, query, documents }),
           });
           break;
-
         default:
           return results;
       }
 
       if (!response.ok) {
         const err = await response.text();
-        console.warn(`[Ark KB] Reranker API error (${response.status}): ${err}`);
+        console.warn("[Ark KB] Reranker API error (" + response.status + "): " + err);
         return results;
       }
 
       const data = await response.json() as any;
 
-      // SiliconFlow / generic rerank format: { results: [{ index, relevance_score }] }
       if (data.results && Array.isArray(data.results)) {
         const scored = data.results
           .filter((r: any) => r.relevance_score >= minScore)
-          .map((r: any) => ({
-            entry: results[r.index].entry,
-            score: r.relevance_score,
-          }))
+          .map((r: any) => ({ entry: results[r.index].entry, score: r.relevance_score }))
           .sort((a: any, b: any) => b.score - a.score);
-
-        return scored.length > 0 ? scored : results;
-      }
-
-      // Cohere format: { results: [{ index, relevance }] }
-      if (data.results && Array.isArray(data.results)) {
-        const scored = data.results
-          .filter((r: any) => r.relevance >= minScore)
-          .map((r: any) => ({
-            entry: results[r.index].entry,
-            score: r.relevance,
-          }))
-          .sort((a: any, b: any) => b.score - a.score);
-
         return scored.length > 0 ? scored : results;
       }
 
       console.warn("[Ark KB] Unknown reranker response format, returning un-scored results");
       return results;
     } catch (err: any) {
-      console.warn(`[Ark KB] Reranker exception: ${err.message}, falling back to fusion scores`);
+      console.warn("[Ark KB] Reranker exception: " + err.message + ", falling back to fusion scores");
       return results;
     }
+  }
+
+  private detectRerankerApi(endpoint: string, apiKey: string): "siliconflow" | "cohere" | "custom" | "none" {
+    if (!apiKey) return "none";
+    const u = endpoint.toLowerCase();
+    if (u.includes("siliconflow")) return "siliconflow";
+    if (u.includes("cohere")) return "cohere";
+    return "custom";
   }
 
 }
