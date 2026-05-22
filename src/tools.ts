@@ -44,6 +44,7 @@ export function registerKBTools(ark: ArkKB) {
         try {
           const results = await ark.search(params.query, {
             resultCount: params.count,
+            rerankerEnabled: true,
           });
 
           if (results.length === 0) {

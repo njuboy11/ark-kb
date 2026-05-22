@@ -487,9 +487,6 @@ export class Ingester {
       // Continue with ingestion
     }
 
-    // Delete existing entries for this source (upsert semantics)
-    await this.store.deleteBySource(base);
-
     let entries: KBEntry[];
     try {
       switch (kind) {
@@ -518,6 +515,9 @@ export class Ingester {
       console.error(`[Ark KB] Failed to process ${filePath}: ${err.message}`);
       return { entries: 0, source: base, skipped: false };
     }
+
+    // Delete existing + insert new (only after successful processing)
+    await this.store.deleteBySource(base);
 
     if (entries.length === 0) {
       return { entries: 0, source: base, skipped: false };
