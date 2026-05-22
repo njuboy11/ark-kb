@@ -22,9 +22,13 @@ export interface EmbedResult {
 export declare function resolveEmbeddingBatchSize(api: string, model: string): number;
 export declare function resolveEmbeddingDimensions(api: string, model: string, userDim?: number): number;
 export declare function resolveEmbeddingEndpoint(api: string, model: string, userEndpoint?: string): string;
+/** Supported modalities from model registry, defaults to text-only */
+export declare function resolveEmbeddingModalities(api: string, model: string): string[];
 export declare class Embedder {
     private config;
     constructor(config: EmbedderConfig);
+    /** Check if this model supports a given input modality */
+    supportsModality(kind: string): boolean;
     embed(texts: string | string[]): Promise<number[][]>;
     private embedBatchWithRetry;
     private embedBatch;

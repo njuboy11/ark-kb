@@ -33,23 +33,25 @@ interface ModelPreset {
   batchSize: number;
   endpoint?: string;
   dimensions?: number;
+  /** Supported input modalities: text, image, video */
+  modalities: string[];
 }
 
 type ProviderPresets = Record<string, ModelPreset>;
 
 const EMBEDDING_MODEL_PRESETS: Record<string, ProviderPresets> = {
   dashscope: {
-    "text-embedding-v4":   { batchSize: 10, endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings", dimensions: 2048 },
-    "text-embedding-v3":   { batchSize: 10, dimensions: 2048 },
-    "text-embedding-v2":   { batchSize: 10, dimensions: 1536 },
+    "text-embedding-v4":   { batchSize: 10, endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings", dimensions: 2048, modalities: ["text"] },
+    "text-embedding-v3":   { batchSize: 10, dimensions: 2048, modalities: ["text"] },
+    "text-embedding-v2":   { batchSize: 10, dimensions: 1536, modalities: ["text"] },
   },
   siliconflow: {
-    "Qwen/Qwen3-VL-Embedding-8B": { batchSize: 16, endpoint: "https://api.siliconflow.cn/v1/embeddings", dimensions: 4096 },
+    "Qwen/Qwen3-VL-Embedding-8B": { batchSize: 16, endpoint: "https://api.siliconflow.cn/v1/embeddings", dimensions: 4096, modalities: ["text", "image"] },
   },
   openai: {
-    "text-embedding-3-large": { batchSize: 2048, dimensions: 3072 },
-    "text-embedding-3-small": { batchSize: 2048, dimensions: 1536 },
-    "text-embedding-ada-002": { batchSize: 2048, dimensions: 1536 },
+    "text-embedding-3-large": { batchSize: 2048, dimensions: 3072, modalities: ["text"] },
+    "text-embedding-3-small": { batchSize: 2048, dimensions: 1536, modalities: ["text"] },
+    "text-embedding-ada-002": { batchSize: 2048, dimensions: 1536, modalities: ["text"] },
   },
 };
 
@@ -71,6 +73,11 @@ export function resolveEmbeddingEndpoint(api: string, model: string, userEndpoin
   return getPreset(api, model)?.endpoint ?? "https://api.siliconflow.cn/v1/embeddings";
 }
 
+/** Supported modalities from model registry, defaults to text-only */
+export function resolveEmbeddingModalities(api: string, model: string): string[] {
+  return getPreset(api, model)?.modalities ?? ["text"];
+}
+
 // ============================================================================
 // Embedder
 // ============================================================================
@@ -80,6 +87,11 @@ export class Embedder {
 
   constructor(config: EmbedderConfig) {
     this.config = config;
+  }
+
+  /** Check if this model supports a given input modality */
+  supportsModality(kind: string): boolean {
+    return resolveEmbeddingModalities(this.config.api, this.config.model).includes(kind);
   }
 
   async embed(texts: string | string[]): Promise<number[][]> {

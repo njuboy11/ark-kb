@@ -6,7 +6,7 @@
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { IngesterConfig } from "./index.js";
-export type FileKind = "text" | "image" | "pdf" | "unsupported";
+export type FileKind = "text" | "image" | "video" | "pdf" | "unsupported";
 export declare function detectFileKind(filePath: string): FileKind;
 export declare function hashFile(filePath: string): Promise<string>;
 /**

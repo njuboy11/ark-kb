@@ -25,13 +25,15 @@ const SUPPORTED_TEXT_EXTS = new Set([
 ]);
 
 const SUPPORTED_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
+const SUPPORTED_VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm"]);
 
-export type FileKind = "text" | "image" | "pdf" | "unsupported";
+export type FileKind = "text" | "image" | "video" | "pdf" | "unsupported";
 
 export function detectFileKind(filePath: string): FileKind {
   const ext = extname(filePath).toLowerCase();
   if (SUPPORTED_TEXT_EXTS.has(ext)) return "text";
   if (SUPPORTED_IMAGE_EXTS.has(ext)) return "image";
+  if (SUPPORTED_VIDEO_EXTS.has(ext)) return "video";
   if (ext === ".pdf") return "pdf";
   return "unsupported";
 }
@@ -463,6 +465,13 @@ export class Ingester {
     const kind = detectFileKind(filePath);
     if (kind === "unsupported") {
       console.log(`[Ark KB] Skipping unsupported file: ${filePath}`);
+      return { entries: 0, source: basename(filePath), skipped: true };
+    }
+
+    // Check if the embedding model supports this file type
+    const modality = kind === "pdf" ? "text" : kind; // PDFs are text after MinerU extraction
+    if (!this.embedder.supportsModality(modality)) {
+      console.log(`[Ark KB] Skipping ${kind} file (model does not support ${modality}): ${filePath}`);
       return { entries: 0, source: basename(filePath), skipped: true };
     }
 
