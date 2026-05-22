@@ -80,14 +80,20 @@ export class Embedder {
 
     switch (api) {
       case "dashscope":
-        // DashScope uses x-knx-domain header for authentication
-        headers["Authorization"] = `Bearer ${apiKey}`;
-        headers["x-knx-domain"] = "search";
-        body = {
-          model,
-          input: { documents: inputs.map(text => ({ text })) },
-          parameters: { dimensions },
-        };
+        // DashScope /compatible-mode endpoint uses OpenAI flat format
+        if (endpoint.includes("compatible-mode")) {
+          headers["Authorization"] = `Bearer ${apiKey}`;
+          body = { model, input: inputs, dimensions };
+        } else {
+          // Native DashScope endpoint: nested documents format
+          headers["Authorization"] = `Bearer ${apiKey}`;
+          headers["x-knx-domain"] = "search";
+          body = {
+            model,
+            input: { documents: inputs.map(text => ({ text })) },
+            parameters: { dimensions },
+          };
+        }
         break;
 
       case "siliconflow":
