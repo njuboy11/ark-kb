@@ -40,6 +40,12 @@ export declare class Ingester {
     /**
      * Recursively ingest all supported files in a directory.
      */
+    /** Scan knowledge dir and re-ingest only files missing from LanceDB or with changed hash */
+    heal(dirPath: string): Promise<{
+        healed: number;
+        skipped: number;
+    }>;
+    /** Scan and ingest all files in a directory (unconditional). */
     ingestDirectory(dirPath: string): Promise<{
         total: number;
         files: number;

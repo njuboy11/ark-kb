@@ -65,9 +65,10 @@ export class ArkKB {
         let total = 0;
         let files = 0;
         if (kp) {
-            const result = await this.ingester.ingestDirectory(kp);
-            total = result.total;
-            files = result.files;
+            const result = await this.ingester.heal(kp);
+            total = result.healed;
+            files = result.healed + result.skipped;
+            console.log(`[Ark KB] Healed ${result.healed} files, skipped ${result.skipped}`);
         }
         if (this.config.watcher.enabled && kp) {
             this.watcher.start(kp, async (event, filePath) => {

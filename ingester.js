@@ -447,6 +447,38 @@ export class Ingester {
     /**
      * Recursively ingest all supported files in a directory.
      */
+    /** Scan knowledge dir and re-ingest only files missing from LanceDB or with changed hash */
+    async heal(dirPath) {
+        let healed = 0;
+        let skipped = 0;
+        const sources = await this.store.listSources();
+        const files = await walkDir(dirPath);
+        for (const filePath of files) {
+            try {
+                const base = basename(filePath);
+                const fileHash = await hashFile(filePath);
+                // Check if this file with same hash already exists in LanceDB
+                if (sources.includes(base)) {
+                    // Quick check: source exists. For full hash check, we would need a query.
+                    // Since we store file_hash per chunk, just check one chunk.
+                    const existing = await this.store.searchBM25(base, 1);
+                    if (existing.length > 0 && existing[0].entry.file_hash === fileHash) {
+                        skipped++;
+                        continue; // Already indexed, skip
+                    }
+                }
+                // File is new or changed — ingest it
+                const result = await this.ingestFile(filePath);
+                if (result.entries > 0)
+                    healed++;
+            }
+            catch (err) {
+                console.error(`[Ark KB] Heal error for ${filePath}: ${err.message}`);
+            }
+        }
+        return { healed, skipped };
+    }
+    /** Scan and ingest all files in a directory (unconditional). */
     async ingestDirectory(dirPath) {
         let totalEntries = 0;
         let totalFiles = 0;
