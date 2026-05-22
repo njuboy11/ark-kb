@@ -5,7 +5,7 @@
   "version": "0.2.0",
   "description": "🏛️ Ark Knowledge Base — Personal knowledge base powered by LanceDB + Multimodal Embedding",
   "author": "njuboy11",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "entry": "./index.js",
   "contracts": {
     "tools": [
