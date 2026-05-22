@@ -19,26 +19,15 @@ export interface EmbedResult {
         total_tokens: number;
     };
 }
-/** Resolve batch size from model registry, falling back to config or default */
-export declare function resolveEmbeddingBatchSize(model: string): number;
-/** Resolve dimensions from model registry */
-export declare function resolveEmbeddingDimensions(model: string, userDim?: number): number;
-/** Resolve endpoint from model registry (user > registry > default) */
-export declare function resolveEmbeddingEndpoint(model: string, userEndpoint?: string): string;
+export declare function resolveEmbeddingBatchSize(api: string, model: string): number;
+export declare function resolveEmbeddingDimensions(api: string, model: string, userDim?: number): number;
+export declare function resolveEmbeddingEndpoint(api: string, model: string, userEndpoint?: string): string;
 export declare class Embedder {
     private config;
     constructor(config: EmbedderConfig);
-    /**
-     * Embed a single text or a batch of texts.
-     * Automatically splits into batchSize chunks and merges results.
-     */
     embed(texts: string | string[]): Promise<number[][]>;
     private embedBatchWithRetry;
     private embedBatch;
-    /**
-     * Parse API-specific response format into standard embedding arrays.
-     * All formats return OpenAI-compatible `data[index].embedding` arrays.
-     */
     private parseResponse;
 }
 //# sourceMappingURL=embedder.d.ts.map

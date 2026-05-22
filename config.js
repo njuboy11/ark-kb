@@ -96,11 +96,11 @@ export function resolveConfig(raw) {
         },
         embedding: {
             api: detectEmbeddingApi(embedEndpoint),
-            endpoint: resolveEmbeddingEndpoint(embedModel, embedEndpoint),
+            endpoint: resolveEmbeddingEndpoint(detectEmbeddingApi(embedEndpoint), embedModel, raw.embedding?.endpoint || undefined),
             apiKey: embedApiKey,
             model: embedModel,
-            dimensions: resolveEmbeddingDimensions(embedModel, raw.embedding?.dimensions),
-            batchSize: resolveEmbeddingBatchSize(embedModel),
+            dimensions: resolveEmbeddingDimensions(detectEmbeddingApi(embedEndpoint), embedModel, raw.embedding?.dimensions),
+            batchSize: resolveEmbeddingBatchSize(detectEmbeddingApi(embedEndpoint), embedModel),
         },
         reranker: {
             api: detectRerankerApi(rerankEndpoint, rerankApiKey),
