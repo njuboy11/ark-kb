@@ -5,22 +5,44 @@
  */
 const EMBEDDING_MODEL_PRESETS = {
     // DashScope / Alibaba
-    "text-embedding-v4": { batchSize: 10 },
-    "text-embedding-v3": { batchSize: 10 },
-    "text-embedding-v2": { batchSize: 10 },
+    "text-embedding-v4": { batchSize: 10, dimensions: 2048 },
+    "text-embedding-v3": { batchSize: 10, dimensions: 2048 },
+    "text-embedding-v2": { batchSize: 10, dimensions: 1536 },
     // SiliconFlow multimodal
-    "Qwen/Qwen3-VL-Embedding-8B": { batchSize: 16 },
+    "Qwen/Qwen3-VL-Embedding-8B": {
+        batchSize: 16,
+        endpoint: "https://api.siliconflow.cn/v1/embeddings",
+        dimensions: 4096,
+    },
     // OpenAI
-    "text-embedding-3-large": { batchSize: 2048 },
-    "text-embedding-3-small": { batchSize: 2048 },
-    "text-embedding-ada-002": { batchSize: 2048 },
+    "text-embedding-3-large": { batchSize: 2048, dimensions: 3072 },
+    "text-embedding-3-small": { batchSize: 2048, dimensions: 1536 },
+    "text-embedding-ada-002": { batchSize: 2048, dimensions: 1536 },
 };
 /** Resolve batch size from model registry, falling back to config or default */
-export function resolveEmbeddingBatchSize(model, configBatchSize) {
+export function resolveEmbeddingBatchSize(model) {
     const preset = EMBEDDING_MODEL_PRESETS[model];
     if (preset)
         return preset.batchSize;
-    return configBatchSize ?? 16; // conservative default
+    return 16; // conservative default
+}
+/** Resolve dimensions from model registry */
+export function resolveEmbeddingDimensions(model, userDim) {
+    if (userDim)
+        return userDim;
+    const preset = EMBEDDING_MODEL_PRESETS[model];
+    if (preset?.dimensions)
+        return preset.dimensions;
+    return 2048; // conservative default
+}
+/** Resolve endpoint from model registry (user > registry > default) */
+export function resolveEmbeddingEndpoint(model, userEndpoint) {
+    if (userEndpoint)
+        return userEndpoint;
+    const preset = EMBEDDING_MODEL_PRESETS[model];
+    if (preset?.endpoint)
+        return preset.endpoint;
+    return "https://api.siliconflow.cn/v1/embeddings";
 }
 // ============================================================================
 // Embedder

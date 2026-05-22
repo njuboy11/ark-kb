@@ -20,7 +20,11 @@ export interface EmbedResult {
     };
 }
 /** Resolve batch size from model registry, falling back to config or default */
-export declare function resolveEmbeddingBatchSize(model: string, configBatchSize?: number): number;
+export declare function resolveEmbeddingBatchSize(model: string): number;
+/** Resolve dimensions from model registry */
+export declare function resolveEmbeddingDimensions(model: string, userDim?: number): number;
+/** Resolve endpoint from model registry (user > registry > default) */
+export declare function resolveEmbeddingEndpoint(model: string, userEndpoint?: string): string;
 export declare class Embedder {
     private config;
     constructor(config: EmbedderConfig);

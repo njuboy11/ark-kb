@@ -1,7 +1,7 @@
 /**
  * Ark KB — Configuration Types
  */
-import { resolveEmbeddingBatchSize } from "./embedder.js";
+import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint } from "./embedder.js";
 export const DEFAULTS = {
     storage: {
         dbPath: "~/.ark-kb/lancedb",
@@ -82,7 +82,7 @@ function detectPdfParserApi(endpoint, apiKey) {
 // Config resolver
 // ============================================================================
 export function resolveConfig(raw) {
-    const embedEndpoint = raw.embedding?.endpoint ?? DEFAULTS.embedding.endpoint;
+    const embedEndpoint = raw.embedding?.endpoint ?? "";
     const embedModel = raw.embedding?.model ?? DEFAULTS.embedding.model;
     const embedApiKey = raw.embedding?.apiKey ?? process.env.ARK_KB_EMBEDDING_API_KEY ?? DEFAULTS.embedding.apiKey;
     const rerankEndpoint = raw.reranker?.endpoint ?? DEFAULTS.reranker.endpoint;
@@ -96,10 +96,10 @@ export function resolveConfig(raw) {
         },
         embedding: {
             api: detectEmbeddingApi(embedEndpoint),
-            endpoint: embedEndpoint,
+            endpoint: resolveEmbeddingEndpoint(embedModel, embedEndpoint),
             apiKey: embedApiKey,
             model: embedModel,
-            dimensions: raw.embedding?.dimensions ?? DEFAULTS.embedding.dimensions,
+            dimensions: resolveEmbeddingDimensions(embedModel, raw.embedding?.dimensions),
             batchSize: resolveEmbeddingBatchSize(embedModel),
         },
         reranker: {

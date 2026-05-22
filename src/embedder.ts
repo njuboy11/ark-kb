@@ -31,34 +31,52 @@ export interface EmbedResult {
 interface ModelPreset {
   /** Max batch size the model/API accepts */
   batchSize: number;
-  /**
-   * Request body format: "openai" = flat array, "dashscope" = nested documents.
-   * Auto-detected from endpoint URL by default — only set for models that
-   * deviate from their vendor's standard format.
-   */
-  format?: "openai" | "dashscope";
+  /** Default endpoint if user doesn't specify one */
+  endpoint?: string;
+  /** Default dimensions */
+  dimensions?: number;
 }
 
 const EMBEDDING_MODEL_PRESETS: Record<string, ModelPreset> = {
   // DashScope / Alibaba
-  "text-embedding-v4":   { batchSize: 10 },
-  "text-embedding-v3":   { batchSize: 10 },
-  "text-embedding-v2":   { batchSize: 10 },
+  "text-embedding-v4":   { batchSize: 10, dimensions: 2048 },
+  "text-embedding-v3":   { batchSize: 10, dimensions: 2048 },
+  "text-embedding-v2":   { batchSize: 10, dimensions: 1536 },
 
   // SiliconFlow multimodal
-  "Qwen/Qwen3-VL-Embedding-8B": { batchSize: 16 },
+  "Qwen/Qwen3-VL-Embedding-8B": {
+    batchSize: 16,
+    endpoint: "https://api.siliconflow.cn/v1/embeddings",
+    dimensions: 4096,
+  },
 
   // OpenAI
-  "text-embedding-3-large": { batchSize: 2048 },
-  "text-embedding-3-small": { batchSize: 2048 },
-  "text-embedding-ada-002": { batchSize: 2048 },
+  "text-embedding-3-large": { batchSize: 2048, dimensions: 3072 },
+  "text-embedding-3-small": { batchSize: 2048, dimensions: 1536 },
+  "text-embedding-ada-002": { batchSize: 2048, dimensions: 1536 },
 };
 
 /** Resolve batch size from model registry, falling back to config or default */
-export function resolveEmbeddingBatchSize(model: string, configBatchSize?: number): number {
+export function resolveEmbeddingBatchSize(model: string): number {
   const preset = EMBEDDING_MODEL_PRESETS[model];
   if (preset) return preset.batchSize;
-  return configBatchSize ?? 16; // conservative default
+  return 16; // conservative default
+}
+
+/** Resolve dimensions from model registry */
+export function resolveEmbeddingDimensions(model: string, userDim?: number): number {
+  if (userDim) return userDim;
+  const preset = EMBEDDING_MODEL_PRESETS[model];
+  if (preset?.dimensions) return preset.dimensions;
+  return 2048; // conservative default
+}
+
+/** Resolve endpoint from model registry (user > registry > default) */
+export function resolveEmbeddingEndpoint(model: string, userEndpoint?: string): string {
+  if (userEndpoint) return userEndpoint;
+  const preset = EMBEDDING_MODEL_PRESETS[model];
+  if (preset?.endpoint) return preset.endpoint;
+  return "https://api.siliconflow.cn/v1/embeddings";
 }
 
 // ============================================================================
