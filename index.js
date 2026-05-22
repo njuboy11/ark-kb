@@ -91,6 +91,18 @@ export class ArkKB {
                 }
             });
         }
+        // Periodic heal: every 10 min, scan for files missed due to network issues
+        if (kp) {
+            const healInterval = setInterval(() => {
+                this.ingester.heal(kp).then(r => {
+                    if (r.healed > 0)
+                        console.log(`[Ark KB] Periodic heal: ${r.healed} files re-indexed`);
+                }).catch(e => console.error('[Ark KB] Periodic heal error:', e));
+            }, 10 * 60 * 1000);
+            // Don't block process exit
+            if (healInterval.unref)
+                healInterval.unref();
+        }
         this._initialized = true;
         console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
     }
