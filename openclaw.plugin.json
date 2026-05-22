@@ -104,6 +104,11 @@
             "type": "string",
             "description": "MinerU parsing model",
             "default": "doclayout_onnx"
+          },
+          "params": {
+            "type": "object",
+            "description": "Additional parameters passed to the PDF parser API (e.g. enable_formula, enable_table for MinerU)",
+            "default": {}
           }
         }
       },

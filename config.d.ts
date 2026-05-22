@@ -23,6 +23,7 @@ export interface ArkKBConfig {
         endpoint?: string;
         apiKey?: string;
         model?: string;
+        params?: Record<string, any>;
     };
     search?: {
         vectorWeight?: number;
@@ -68,6 +69,7 @@ export interface ResolvedConfig {
         endpoint: string;
         apiKey: string;
         model: string;
+        params: Record<string, any>;
     };
     search: {
         vectorWeight: number;

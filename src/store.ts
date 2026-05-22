@@ -123,7 +123,7 @@ export class KnowledgeStore {
     }
 
     const allResults = await this.table
-      .search(queryVector)
+      .search(queryVector, { columns: ["vector"] })
       .limit(topK * 3) // over-fetch for hybrid merge
       .execute();
 

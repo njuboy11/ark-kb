@@ -132,30 +132,130 @@ export async function extractPdfText(filePath, pdfConfig) {
 }
 async function extractPdfMinerU(filePath, config) {
     const fs = await import("node:fs");
-    const fileBuffer = fs.readFileSync(filePath);
-    const base64 = fileBuffer.toString("base64");
-    const response = await fetch(config.endpoint, {
+    const path = await import("node:path");
+    const os = await import("node:os");
+    // Step 0: Expose PDF as a URL (MinerU prefers URL over base64 for large files)
+    let pdfUrl;
+    const serveDir = "/var/www/downloads";
+    if (fs.existsSync(serveDir)) {
+        const fileName = path.basename(filePath);
+        const dest = path.join(serveDir, fileName);
+        fs.copyFileSync(filePath, dest);
+        fs.chmodSync(dest, 0o644);
+        pdfUrl = `https://home.sfunds.cn:8444/${encodeURIComponent(fileName)}`;
+    }
+    else {
+        // No nginx — fallback to base64 for small files (<2MB)
+        const stat = fs.statSync(filePath);
+        if (stat.size > 2 * 1024 * 1024) {
+            throw new Error("PDF too large for base64 (>2MB) and no HTTP server available. Install nginx or use builtin parser.");
+        }
+        const fileBuffer = fs.readFileSync(filePath);
+        pdfUrl = fileBuffer.toString("base64");
+    }
+    // Merge user params with sensible defaults
+    const submitBody = {
+        enable_formula: true,
+        enable_table: true,
+        ...(config.params ?? {}),
+    };
+    // Use url or file depending on what we generated
+    if (pdfUrl.startsWith("https://")) {
+        submitBody.url = pdfUrl;
+    }
+    else {
+        submitBody.file = pdfUrl;
+        submitBody.file_name = path.basename(filePath);
+    }
+    // Step 1: Submit task
+    const submitRes = await fetch(config.endpoint, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${config.apiKey || ""}`,
         },
-        body: JSON.stringify({
-            model: config.model || "doclayout_onnx",
-            input: { document: base64 },
-        }),
+        body: JSON.stringify(submitBody),
     });
-    if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`MinerU API error (${response.status}): ${err}`);
+    if (!submitRes.ok) {
+        const errText = await submitRes.text();
+        throw new Error(`MinerU submit error (${submitRes.status}): ${errText}`);
     }
-    const data = await response.json();
-    // MinerU returns { output: { text: string } } or similar
-    if (data.output?.text)
-        return data.output.text;
-    if (typeof data.output === "string")
-        return data.output;
-    return JSON.stringify(data.output);
+    const submitData = await submitRes.json();
+    if (submitData.code !== 0) {
+        throw new Error(`MinerU submit failed: ${submitData.msg || JSON.stringify(submitData)}`);
+    }
+    const taskId = submitData.data?.task_id;
+    if (!taskId)
+        throw new Error(`MinerU submit returned no task_id`);
+    // Step 2: Poll until done
+    const pollUrl = `${config.endpoint}/${taskId}`;
+    const timeoutMs = 300_000; // 5 min
+    const intervalMs = 5_000;
+    const startTime = Date.now();
+    let fullZipUrl = "";
+    while (Date.now() - startTime < timeoutMs) {
+        await new Promise((r) => setTimeout(r, intervalMs));
+        const pollRes = await fetch(pollUrl, {
+            headers: { "Authorization": `Bearer ${config.apiKey || ""}` },
+        });
+        if (!pollRes.ok) {
+            const errText = await pollRes.text();
+            throw new Error(`MinerU poll error (${pollRes.status}): ${errText}`);
+        }
+        const pollData = await pollRes.json();
+        if (pollData.code !== 0) {
+            throw new Error(`MinerU poll failed: ${pollData.msg || JSON.stringify(pollData)}`);
+        }
+        const state = pollData.data?.state;
+        if (state === "done") {
+            fullZipUrl = pollData.data?.full_zip_url;
+            if (!fullZipUrl)
+                throw new Error(`MinerU task done but no full_zip_url`);
+            break;
+        }
+        if (state === "failed") {
+            throw new Error(`MinerU task failed: ${pollData.data?.err_msg || "unknown"}`);
+        }
+        console.log(`[Ark KB] MinerU polling ${taskId.slice(0, 8)}... state=${state} (${Math.round((Date.now() - startTime) / 1000)}s)`);
+    }
+    if (!fullZipUrl) {
+        throw new Error(`MinerU task ${taskId} timed out after ${timeoutMs / 1000}s`);
+    }
+    // Step 3: Download and extract full.md
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ark-mineru-"));
+    const zipPath = path.join(tmpDir, "result.zip");
+    try {
+        const zipRes = await fetch(fullZipUrl);
+        if (!zipRes.ok)
+            throw new Error(`MinerU download error (${zipRes.status})`);
+        const zipBuffer = Buffer.from(await zipRes.arrayBuffer());
+        fs.writeFileSync(zipPath, zipBuffer);
+        // Extract using Node.js built-in (zlib + unzip via child_process)
+        const childProcess = await import("node:child_process");
+        const extractResult = childProcess.execSync(`unzip -o "${zipPath}" -d "${tmpDir}"`, {
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"],
+        });
+        const fullMdPath = path.join(tmpDir, "full.md");
+        if (fs.existsSync(fullMdPath)) {
+            const text = fs.readFileSync(fullMdPath, "utf-8");
+            return text;
+        }
+        // Look for any .md file
+        const files = fs.readdirSync(tmpDir);
+        const mdFile = files.find((f) => f.endsWith(".md"));
+        if (mdFile) {
+            return fs.readFileSync(path.join(tmpDir, mdFile), "utf-8");
+        }
+        throw new Error(`No .md file found in MinerU result (files: ${files.join(", ")})`);
+    }
+    finally {
+        // Cleanup temp directory
+        try {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+        catch { /* ignore */ }
+    }
 }
 async function extractPdfBuiltin(filePath) {
     // Fallback: read raw bytes and extract visible ASCII text

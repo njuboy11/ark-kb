@@ -28,6 +28,7 @@ export interface ArkKBConfig {
     endpoint?: string;
     apiKey?: string;
     model?: string;
+    params?: Record<string, any>;
   };
   search?: {
     vectorWeight?: number;
@@ -78,6 +79,7 @@ export interface ResolvedConfig {
     endpoint: string;
     apiKey: string;
     model: string;
+    params: Record<string, any>;
   };
   search: {
     vectorWeight: number;
@@ -107,7 +109,7 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
     api: "siliconflow",
     endpoint: "https://api.siliconflow.cn/v1/embeddings",
     apiKey: "",
-    model: "Qwen3-VL-Embedding-8B",
+    model: "Qwen/Qwen3-VL-Embedding-8B",
     dimensions: 4096,
     batchSize: 8,
   },
@@ -123,6 +125,7 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
     endpoint: "",
     apiKey: "",
     model: "precise-v4",
+    params: {},
   },
   search: {
     vectorWeight: 0.7,
@@ -208,6 +211,7 @@ export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
       endpoint: pdfEndpoint,
       apiKey: pdfApiKey,
       model: raw.pdfParser?.model ?? DEFAULTS.pdfParser.model,
+      params: raw.pdfParser?.params ?? DEFAULTS.pdfParser.params,
     },
     search: {
       vectorWeight: raw.search?.vectorWeight ?? DEFAULTS.search.vectorWeight,
