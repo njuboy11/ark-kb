@@ -137,9 +137,16 @@ async function extractAndTile(
 ): Promise<string> {
   // Step 1: Extract frames at adaptive interval
   await new Promise<void>((resolve, reject) => {
+    // Prefer the lowest-resolution video stream >= 360p to save decode time
+    const scaleFilter = `scale=${opts.resolution}:-2`;
+    const frameFilter = `fps=1/${opts.interval}`;
     const proc = spawn("ffmpeg", [
-      "-y", "-i", filePath,
-      "-vf", `fps=1/${opts.interval},scale=${opts.resolution}:-2`,
+      "-y",
+      "-skip_scale", "1",          // Keep original pix_fmt to avoid conversion overhead
+      "-i", filePath,
+      "-an",                          // Skip audio processing
+      "-map", "0:v:0?",               // Use first video stream
+      "-vf", `${scaleFilter},${frameFilter}`,
       "-q:v", "50",
       join(outputDir, "frame_%04d.jpg"),
     ], { stdio: ["ignore", "pipe", "pipe"] });
