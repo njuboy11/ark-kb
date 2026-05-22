@@ -1,45 +1,49 @@
 /**
  * Ark KB — Ingester
- * File reading, chunking, embedding, and indexing.
+ * File ingestion: detect type → hash → chunk → embed → upsert into store.
+ * Handles text, images, and PDFs with configurable chunking.
  */
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
-import type { ResolvedConfig } from "./config.js";
+import { IngesterConfig } from "./index.js";
+export type FileKind = "text" | "image" | "pdf" | "unsupported";
+export declare function detectFileKind(filePath: string): FileKind;
+export declare function hashFile(filePath: string): Promise<string>;
+/**
+ * Split text into chunks using the configured strategy.
+ * Tokens are approximated as chars for CJK text.
+ */
+export declare function chunkText(text: string, config: {
+    maxTokens: number;
+    overlapTokens: number;
+    strategy: string;
+}): string[];
+/**
+ * Extract text from PDF using MinerU API or built-in pdf-parse.
+ */
+export declare function extractPdfText(filePath: string, pdfConfig: NonNullable<IngesterConfig["pdfParser"]>): Promise<string>;
 export declare class Ingester {
     private store;
     private embedder;
     private config;
-    constructor(store: KnowledgeStore, embedder: Embedder, config: ResolvedConfig);
+    constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig);
     /**
-     * Ingest a single file. Detects type, chunks, dedupes by hash, embeds, and indexes.
+     * Ingest a single file: detect type → hash → chunk → embed → upsert.
+     * Skips files with no changes (hash comparison).
+     * Returns the number of entries inserted.
      */
     ingestFile(filePath: string): Promise<{
         entries: number;
         source: string;
+        skipped: boolean;
     }>;
     /**
-     * Recursively ingest all supported files under dirPath.
+     * Recursively ingest all supported files in a directory.
      */
     ingestDirectory(dirPath: string): Promise<{
         total: number;
         files: number;
+        errors: number;
     }>;
-    private ingestText;
-    private ingestImage;
-    private ingestPdf;
-    private ingestPdfMinERU;
-    private chunkText;
-    /**
-     * Paragraph strategy: split by blank lines, merge chunks to maxTokens.
-     */
-    private chunkParagraph;
-    /**
-     * Fixed-size strategy: slice text into chunks of exactly maxTokens chars.
-     */
-    private chunkFixed;
-    /**
-     * Sentence strategy: split by sentence-ending punctuation, merge to maxTokens.
-     */
-    private chunkSentence;
 }
 //# sourceMappingURL=ingester.d.ts.map

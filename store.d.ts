@@ -1,6 +1,7 @@
 /**
- * Ark KB — Knowledge Store
- * LanceDB-backed vector store with in-memory fallback and BM25 inverted index.
+ * Ark KB — KnowledgeStore
+ * LanceDB-backed vector store with FTS (BM25) support.
+ * NO in-memory fallback — LanceDB failure throws.
  */
 export interface KBEntry {
     id: string;
@@ -23,59 +24,43 @@ export interface StoreConfig {
     dbPath: string;
     vectorDim: number;
 }
-export declare class BM25Index {
-    private entries;
-    private idf;
-    private avgDocLen;
-    private k1;
-    private b;
-    private tokenize;
-    build(entries: KBEntry[]): void;
-    search(queryText: string, k: number): Array<{
-        entry: KBEntry;
-        bm25Score: number;
-    }>;
-}
 export declare class KnowledgeStore {
     private db;
     private table;
     private config;
-    private inMemoryStore;
-    private useInMemory;
-    private bm25Index;
     constructor(config: StoreConfig);
     init(): Promise<void>;
-    insert(entries: KBEntry[]): Promise<void>;
-    private getAllEntries;
-    vectorSearch(queryVector: number[], k: number): Promise<KBSearchResult[]>;
-    private inMemoryVectorSearch;
-    bm25Search(queryText: string, k: number): Promise<Array<{
-        entry: KBEntry;
-        bm25Score: number;
-    }>>;
     /**
-     * Fuse vector and BM25 results using weighted score fusion.
-  /**
-     * Fuse vector and BM25 scores using the specified method.
-     *
-     * Methods:
-     * - min_max: Normalize each list to [0,1] with min-max scaling, then weighted sum.
-     * - z_score: Standardize each list (mean=0, stddev=1), then weighted sum.
-     * - rrf: Reciprocal Rank Fusion — rank-based, ignoring score magnitudes.
-     * - raw: Weighted sum of raw scores (assumes scores are comparable).
+     * InsertKBEntry array in a single batch.
      */
-    fuseResults(vectorResults: KBSearchResult[], bm25Results: Array<{
-        entry: KBEntry;
-        bm25Score: number;
-    }>, vectorWeight: number, method?: "min_max" | "z_score" | "rrf" | "raw"): KBSearchResult[];
-    private fuseMinMax;
-    private fuseZScore;
-    private fuseRRF;
-    private fuseRaw;
+    insert(entries: KBEntry[]): Promise<void>;
+    /**
+     * Vector ANN search + BM25 FTS hybrid search.
+     * Returns merged results sorted by weighted score.
+     * Note: LanceDB's FTS requires explicit field index — we query raw and sort.
+     */
+    search(queryVector: number[], topK: number): Promise<KBSearchResult[]>;
+    /**
+     * BM25-style full-text search using LanceDB FTS.
+     * Falls back to vector-only search if FTS is not available.
+     */
+    searchBM25(query: string, topK: number): Promise<KBSearchResult[]>;
+    /**
+     * Delete all entries belonging to a source path.
+     * Returns the number of deleted entries.
+     */
     deleteBySource(sourcePath: string): Promise<number>;
+    /**
+     * List all unique source paths in the store.
+     */
     listSources(): Promise<string[]>;
+    /**
+     * Total number of chunk entries.
+     */
     count(): Promise<number>;
+    /**
+     * Close the database connection.
+     */
     close(): Promise<void>;
-    private rowToEntry;
 }
 //# sourceMappingURL=store.d.ts.map

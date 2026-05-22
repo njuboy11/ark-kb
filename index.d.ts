@@ -1,6 +1,7 @@
 /**
  * Ark KB — Main Entry
- * Initializes and wires together Store, Embedder, Ingester, Searcher, and Watcher.
+ * Wires together all components with nested config support.
+ * Exports definePluginEntry-compatible register function for OpenClaw.
  */
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
@@ -15,17 +16,19 @@ export declare class ArkKB {
     searcher: Searcher;
     watcher: FileWatcher;
     config: ResolvedConfig;
-    private initialized;
-    constructor(config: ArkKBConfig);
+    private _initialized;
+    constructor(rawConfig?: ArkKBConfig);
     init(): Promise<void>;
-    search(query: string, options?: Partial<import("./searcher.js").SearchOptions>): Promise<import("./searcher.js").SearchResult[]>;
+    search(query: string, options?: {
+        topK?: number;
+        rerankerEnabled?: boolean;
+        rerankerMinScore?: number;
+        resultCount?: number;
+    }): Promise<any[]>;
     ingestFile(filePath: string): Promise<{
         entries: number;
         source: string;
-    }>;
-    ingestDirectory(): Promise<{
-        total: number;
-        files: number;
+        skipped: boolean;
     }>;
     removeSource(sourcePath: string): Promise<number>;
     status(): Promise<{
@@ -33,9 +36,7 @@ export declare class ArkKB {
         sources: string[];
     }>;
     shutdown(): Promise<void>;
-    /**
-     * Returns the tool registration array for OpenClaw.
-     */
+    get ingesterInstance(): Ingester;
     getTools(): ({
         name: string;
         description: string;
@@ -49,7 +50,6 @@ export declare class ArkKB {
                 count: {
                     type: string;
                     description: string;
-                    default: number;
                 };
                 filePath?: undefined;
                 sourcePath?: undefined;
@@ -151,6 +151,37 @@ export declare class ArkKB {
         }>;
     })[];
 }
-export type { ArkKBConfig, ResolvedConfig } from "./config.js";
-export type { SearchOptions, SearchResult, SourceContent } from "./searcher.js";
+/**
+ * Creates the OpenClaw plugin definition.
+ * Compatible with both TypeScript source and compiled JS output.
+ */
+export declare function createPlugin(ark: ArkKB): {
+    id: string;
+    name: string;
+    description: string;
+    tools: string[];
+};
+export declare function register(api: {
+    registerTool: (tool: any, opts?: any) => void;
+    registerRuntimeLifecycle: (lifecycle: {
+        id: string;
+        shutdown: () => Promise<void>;
+    }) => void;
+    config?: Record<string, any>;
+    pluginConfig?: Record<string, any>;
+}): void;
+export interface IngesterConfig {
+    chunking: ResolvedConfig["chunking"];
+    pdfParser: ResolvedConfig["pdfParser"];
+}
+export interface SearcherConfig {
+    search: ResolvedConfig["search"];
+    reranker: ResolvedConfig["reranker"];
+}
+export interface WatcherConfig {
+    enabled: boolean;
+    paths: string[];
+    debounceMs: number;
+    ignorePatterns: string[];
+}
 //# sourceMappingURL=index.d.ts.map

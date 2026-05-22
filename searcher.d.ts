@@ -1,18 +1,16 @@
 /**
  * Ark KB — Searcher
- * Hybrid BM25 + vector search with optional reranking.
+ * Hybrid BM25 + vector search with weighted fusion and optional reranking.
  */
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
-import type { ResolvedConfig } from "./config.js";
+import { SearcherConfig } from "./index.js";
 export interface SearchOptions {
     query: string;
     topK?: number;
-    resultCount?: number;
-    vectorWeight?: number;
-    bm25Enabled?: boolean;
     rerankerEnabled?: boolean;
     rerankerMinScore?: number;
+    resultCount?: number;
 }
 export interface SearchResult {
     score: number;
@@ -22,6 +20,7 @@ export interface SearchResult {
     total_chunks: number;
     images: string[];
     file_type: string;
+    relevance_score?: number;
 }
 export interface SourceContent {
     source_path: string;
@@ -30,13 +29,21 @@ export interface SourceContent {
 export declare class Searcher {
     private store;
     private embedder;
+    private knowledgePath;
     private config;
-    constructor(store: KnowledgeStore, embedder: Embedder, config: ResolvedConfig);
+    constructor(store: KnowledgeStore, embedder: Embedder, knowledgePath: string, config: SearcherConfig);
+    /**
+     * Perform hybrid search: vector ANN + BM25, weighted fusion, optional rerank.
+     */
     search(options: SearchOptions): Promise<SearchResult[]>;
     /**
-     * Read the full content of a source file.
+     * Read the full source file from the knowledge path.
      */
     getSource(sourcePath: string): Promise<SourceContent | null>;
+    /**
+     * Apply reranker API for precision re-ranking.
+     */
     private applyReranker;
+    private getDefaultRerankerEndpoint;
 }
 //# sourceMappingURL=searcher.d.ts.map

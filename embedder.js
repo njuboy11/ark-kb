@@ -1,115 +1,127 @@
 /**
  * Ark KB — Embedder
- * Multi-provider embedding: qwen3-vl (DashScope), openai-compatible, custom.
+ * Multi-API embedder supporting DashScope, SiliconFlow, OpenAI, and custom endpoints.
+ * Batch embedding with configurable batch size and exponential backoff retries.
  */
 // ============================================================================
 // Embedder
 // ============================================================================
 export class Embedder {
     config;
-    maxRetries = 3;
     constructor(config) {
         this.config = config;
     }
     /**
      * Embed a single text or a batch of texts.
-     * Returns an array of embedding vectors.
+     * Automatically splits into batchSize chunks and merges results.
      */
-    async embed(text) {
-        const inputs = Array.isArray(text) ? text : [text];
+    async embed(texts) {
+        const inputs = Array.isArray(texts) ? texts : [texts];
         if (inputs.length === 0)
             return [];
-        const results = [];
+        const allEmbeddings = [];
         // Process in batches
         for (let i = 0; i < inputs.length; i += this.config.batchSize) {
             const batch = inputs.slice(i, i + this.config.batchSize);
-            const batchResults = await this.callEmbeddingAPI(batch);
-            results.push(...batchResults);
+            const batchResult = await this.embedBatchWithRetry(batch);
+            allEmbeddings.push(...batchResult.embeddings);
         }
-        return results;
+        return allEmbeddings;
     }
-    async callEmbeddingAPI(inputs) {
-        let lastError = null;
-        for (let attempt = 0; attempt < this.maxRetries; attempt++) {
-            try {
-                const body = this.buildRequestBody(inputs);
-                const response = await fetch(this.config.endpoint, {
-                    method: "POST",
-                    headers: this.buildHeaders(),
-                    body: JSON.stringify(body),
-                });
-                if (response.status === 429 || response.status === 503) {
-                    // Rate limit or unavailable — retry after delay
-                    const retryAfter = response.headers.get("Retry-After");
-                    const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : (attempt + 1) * 1000;
-                    await sleep(delay);
-                    continue;
-                }
-                if (!response.ok) {
-                    const errBody = await response.text();
-                    throw new Error(`Embedding API error (${response.status}): ${errBody}`);
-                }
-                const data = await response.json();
-                return this.parseResponse(data, inputs.length);
+    async embedBatchWithRetry(inputs, attempt = 0) {
+        const maxAttempts = 3;
+        try {
+            return await this.embedBatch(inputs);
+        }
+        catch (err) {
+            if (attempt < maxAttempts - 1) {
+                const delay = Math.pow(2, attempt) * 1000;
+                console.warn(`[Ark KB] Embedding batch failed (attempt ${attempt + 1}), retrying in ${delay}ms: ${err.message}`);
+                await sleep(delay);
+                return this.embedBatchWithRetry(inputs, attempt + 1);
             }
-            catch (err) {
-                lastError = err;
-                if (attempt < this.maxRetries - 1) {
-                    await sleep((attempt + 1) * 500);
-                }
-            }
-        }
-        throw lastError ?? new Error("Embedding failed after retries");
-    }
-    buildRequestBody(inputs) {
-        switch (this.config.api) {
-            case "qwen3-vl":
-                return {
-                    model: this.config.model,
-                    input: inputs,
-                    dimensions: this.config.dimensions,
-                };
-            case "openai":
-                return {
-                    model: this.config.model,
-                    input: inputs,
-                    dimensions: this.config.dimensions,
-                };
-            case "custom":
-            default:
-                return {
-                    model: this.config.model,
-                    input: inputs,
-                    dimensions: this.config.dimensions,
-                };
+            throw new Error(`[Ark KB] Embedding failed after ${maxAttempts} attempts: ${err.message}`);
         }
     }
-    buildHeaders() {
+    async embedBatch(inputs) {
+        const { api, endpoint, apiKey, model, dimensions } = this.config;
         const headers = {
             "Content-Type": "application/json",
         };
-        if (this.config.apiKey) {
-            headers["Authorization"] = `Bearer ${this.config.apiKey}`;
+        let body;
+        switch (api) {
+            case "dashscope":
+                // DashScope uses x-knx-domain header for authentication
+                headers["Authorization"] = `Bearer ${apiKey}`;
+                headers["x-knx-domain"] = "search";
+                body = {
+                    model,
+                    input: { documents: inputs.map(text => ({ text })) },
+                    parameters: { dimensions },
+                };
+                break;
+            case "siliconflow":
+            case "openai":
+            case "custom":
+                headers["Authorization"] = `Bearer ${apiKey}`;
+                body = {
+                    model,
+                    input: inputs,
+                    dimensions,
+                };
+                break;
+            default:
+                throw new Error(`[Ark KB] Unknown embedding API: ${api}`);
         }
-        return headers;
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+            const errText = await response.text().catch(() => "");
+            throw new Error(`Embedding API error (${response.status}): ${errText}`);
+        }
+        const data = await response.json();
+        return this.parseResponse(data, api);
     }
-    parseResponse(data, expectedCount) {
-        // Standard OpenAI-compatible response
+    /**
+     * Parse API-specific response format into standard embedding arrays.
+     * All formats return OpenAI-compatible `data[index].embedding` arrays.
+     */
+    parseResponse(data, api) {
+        // OpenAI / SiliconFlow format
         if (data.data && Array.isArray(data.data)) {
-            const sorted = data.data.slice().sort((a, b) => a.index - b.index);
-            return sorted.map((item) => item.embedding);
+            const embeddings = data.data
+                .sort((a, b) => a.index - b.index)
+                .map((item) => item.embedding);
+            return {
+                embeddings,
+                model: data.model || this.config.model,
+                usage: data.usage ? {
+                    prompt_tokens: data.usage.prompt_tokens || 0,
+                    total_tokens: data.usage.total_tokens || 0,
+                } : undefined,
+            };
         }
-        // Alternative: data.embeddings array (some providers)
-        if (data.embeddings && Array.isArray(data.embeddings)) {
-            return data.embeddings.map((item) => Array.isArray(item) ? item : item.embedding ?? []);
+        // DashScope format: { output.embeddings: [{ embedding: number[], text_index: number }] }
+        if (data.output?.embeddings && Array.isArray(data.output.embeddings)) {
+            const embeddings = data.output.embeddings
+                .sort((a, b) => a.text_index - b.text_index)
+                .map((item) => item.embedding);
+            return {
+                embeddings,
+                model: data.model || this.config.model,
+                usage: data.usage,
+            };
         }
-        throw new Error(`Unexpected embedding response format: ${JSON.stringify(data).slice(0, 200)}`);
+        throw new Error(`[Ark KB] Unexpected embedding response format from ${api}: ${JSON.stringify(Object.keys(data))}`);
     }
 }
 // ============================================================================
-// Helper
+// Helpers
 // ============================================================================
 function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 //# sourceMappingURL=embedder.js.map

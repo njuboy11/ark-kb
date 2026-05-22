@@ -1,6 +1,6 @@
 /**
  * Ark KB — Tool Registration
- * Registers kb_search, kb_ingest, kb_remove, kb_status tools.
+ * Registers kb_search, kb_ingest, kb_remove, kb_status tools with OpenClaw.
  */
 import { ArkKB } from "./index.js";
 export declare function registerKBTools(ark: ArkKB): ({
@@ -16,7 +16,6 @@ export declare function registerKBTools(ark: ArkKB): ({
             count: {
                 type: string;
                 description: string;
-                default: number;
             };
             filePath?: undefined;
             sourcePath?: undefined;

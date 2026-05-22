@@ -12,7 +12,7 @@ export interface ArkKBConfig {
     dbPath?: string;
   };
   embedding?: {
-    api?: "qwen3-vl" | "openai" | "custom";
+    api?: "siliconflow" | "dashscope" | "openai" | "custom";
     endpoint?: string;
     apiKey?: string;
     model?: string;
@@ -20,7 +20,7 @@ export interface ArkKBConfig {
     batchSize?: number;
   };
   reranker?: {
-    api?: "siliconflow" | "cohere" | "none";
+    api?: "siliconflow" | "cohere" | "custom" | "none";
     endpoint?: string;
     apiKey?: string;
     model?: string;
@@ -46,6 +46,7 @@ export interface ArkKBConfig {
   };
   watcher?: {
     enabled?: boolean;
+    paths?: string[];
     debounceMs?: number;
     ignorePatterns?: string[];
   };
@@ -61,7 +62,7 @@ export interface ResolvedConfig {
     dbPath: string;
   };
   embedding: {
-    api: "qwen3-vl" | "openai" | "custom";
+    api: "dashscope" | "siliconflow" | "openai" | "custom";
     endpoint: string;
     apiKey: string;
     model: string;
@@ -69,7 +70,7 @@ export interface ResolvedConfig {
     batchSize: number;
   };
   reranker: {
-    api: "siliconflow" | "cohere" | "none";
+    api: "siliconflow" | "cohere" | "custom" | "none";
     endpoint: string;
     apiKey: string;
     model: string;
@@ -95,6 +96,7 @@ export interface ResolvedConfig {
   };
   watcher: {
     enabled: boolean;
+    paths: string[];
     debounceMs: number;
     ignorePatterns: string[];
   };
@@ -105,7 +107,7 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
     dbPath: "~/.ark-kb/lancedb",
   },
   embedding: {
-    api: "qwen3-vl",
+    api: "siliconflow",
     endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
     apiKey: "",
     model: "Qwen3-VL-Embedding-8B",
@@ -139,6 +141,7 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
   },
   watcher: {
     enabled: true,
+    paths: [],
     debounceMs: 2000,
     ignorePatterns: [".*", "~*", "*.tmp", "*.swp", "*.part"],
   },
@@ -146,14 +149,14 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
 
 export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
   return {
-    knowledgePath: raw.knowledgePath ?? "",
+    knowledgePath: raw.knowledgePath ?? process.env.ARK_KB_KNOWLEDGE_PATH ?? "",
     storage: {
       dbPath: raw.storage?.dbPath ?? DEFAULTS.storage.dbPath,
     },
     embedding: {
       api: raw.embedding?.api ?? DEFAULTS.embedding.api,
       endpoint: raw.embedding?.endpoint ?? DEFAULTS.embedding.endpoint,
-      apiKey: raw.embedding?.apiKey ?? DEFAULTS.embedding.apiKey,
+      apiKey: raw.embedding?.apiKey ?? process.env.ARK_KB_EMBEDDING_API_KEY ?? DEFAULTS.embedding.apiKey,
       model: raw.embedding?.model ?? DEFAULTS.embedding.model,
       dimensions: raw.embedding?.dimensions ?? DEFAULTS.embedding.dimensions,
       batchSize: raw.embedding?.batchSize ?? DEFAULTS.embedding.batchSize,
@@ -161,7 +164,7 @@ export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
     reranker: {
       api: raw.reranker?.api ?? DEFAULTS.reranker.api,
       endpoint: raw.reranker?.endpoint ?? DEFAULTS.reranker.endpoint,
-      apiKey: raw.reranker?.apiKey ?? DEFAULTS.reranker.apiKey,
+      apiKey: raw.reranker?.apiKey ?? process.env.ARK_KB_RERANKER_API_KEY ?? DEFAULTS.reranker.apiKey,
       model: raw.reranker?.model ?? DEFAULTS.reranker.model,
       minScore: raw.reranker?.minScore ?? DEFAULTS.reranker.minScore,
     },
@@ -185,6 +188,7 @@ export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
     },
     watcher: {
       enabled: raw.watcher?.enabled ?? DEFAULTS.watcher.enabled,
+      paths: raw.watcher?.paths ?? DEFAULTS.watcher.paths,
       debounceMs: raw.watcher?.debounceMs ?? DEFAULTS.watcher.debounceMs,
       ignorePatterns: raw.watcher?.ignorePatterns ?? DEFAULTS.watcher.ignorePatterns,
     },

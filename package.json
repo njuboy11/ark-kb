@@ -1,8 +1,8 @@
 {
   "name": "ark-kb",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "🏛️ Ark Knowledge Base — Personal knowledge base powered by LanceDB + Multimodal Embedding (Qwen3-VL-8B)",
+  "description": "\ud83c\udfdb\ufe0f Ark Knowledge Base \u2014 Personal knowledge base powered by LanceDB + Multimodal Embedding (Qwen3-VL-8B)",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -37,5 +37,10 @@
     "@types/pdf-parse": "^1.1.5",
     "pdf-parse": "^2.4.5",
     "typescript": "^5.9.3"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
   }
 }

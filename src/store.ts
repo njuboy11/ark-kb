@@ -8,6 +8,21 @@ import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
+/** Helper: collect all rows from LanceDB RecordBatchIterator (no .toArray()) */
+async function collectRows(results: any): Promise<any[]> {
+  if (Array.isArray(results)) return results;
+  const rows: any[] = [];
+  while (true) {
+    const r = await results.next();
+    if (r.done) break;
+    const batch = r.value;
+    if (batch?.toArray) {
+      rows.push(...batch.toArray());
+    }
+  }
+  return rows;
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -112,7 +127,7 @@ export class KnowledgeStore {
       .limit(topK * 3) // over-fetch for hybrid merge
       .execute();
 
-    const rows = Array.isArray(allResults) ? allResults : await (allResults as any).toArray();
+    const rows = await collectRows(allResults);
 
     return rows.map((r: any) => ({
       entry: {
@@ -148,7 +163,7 @@ export class KnowledgeStore {
         .limit(topK)
         .execute();
 
-      const rows = Array.isArray(ftsResults) ? ftsResults : await (ftsResults as any).toArray();
+      const rows = await collectRows(ftsResults);
 
       return rows.map((r: any) => ({
         entry: {
@@ -195,7 +210,7 @@ export class KnowledgeStore {
       throw new Error("[Ark KB] Store not initialized — call init() first");
     }
     const results = await this.table.query().select(["source_path"]).execute();
-    const rows = Array.isArray(results) ? results : await (results as any).toArray();
+    const rows = await collectRows(results);
     const paths = rows.map((r: any) => r.source_path).filter((s: unknown): s is string => typeof s === "string" && s.length > 0);
     return [...new Set<string>(paths)];
   }

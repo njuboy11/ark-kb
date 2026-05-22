@@ -1,27 +1,38 @@
 /**
  * Ark KB — Embedder
- * Multi-provider embedding: qwen3-vl (DashScope), openai-compatible, custom.
+ * Multi-API embedder supporting DashScope, SiliconFlow, OpenAI, and custom endpoints.
+ * Batch embedding with configurable batch size and exponential backoff retries.
  */
 export interface EmbedderConfig {
-    api: "qwen3-vl" | "openai" | "custom";
+    api: string;
     endpoint: string;
     apiKey: string;
     model: string;
     dimensions: number;
     batchSize: number;
 }
+export interface EmbedResult {
+    embeddings: number[][];
+    model: string;
+    usage?: {
+        prompt_tokens: number;
+        total_tokens: number;
+    };
+}
 export declare class Embedder {
     private config;
-    private maxRetries;
     constructor(config: EmbedderConfig);
     /**
      * Embed a single text or a batch of texts.
-     * Returns an array of embedding vectors.
+     * Automatically splits into batchSize chunks and merges results.
      */
-    embed(text: string | string[]): Promise<number[][]>;
-    private callEmbeddingAPI;
-    private buildRequestBody;
-    private buildHeaders;
+    embed(texts: string | string[]): Promise<number[][]>;
+    private embedBatchWithRetry;
+    private embedBatch;
+    /**
+     * Parse API-specific response format into standard embedding arrays.
+     * All formats return OpenAI-compatible `data[index].embedding` arrays.
+     */
     private parseResponse;
 }
 //# sourceMappingURL=embedder.d.ts.map

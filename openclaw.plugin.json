@@ -2,20 +2,23 @@
   "$schema": "https://openclaw.ai/schemas/plugin.schema.json",
   "id": "@njuboy11/ark-kb",
   "name": "ark-kb",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "🏛️ Ark Knowledge Base — Personal knowledge base powered by LanceDB + Multimodal Embedding",
   "author": "njuboy11",
   "license": "GPL-3.0-only",
   "entry": "./index.js",
   "contracts": {
-    "tools": true
+    "tools": [
+      "kb_search",
+      "kb_ingest",
+      "kb_remove",
+      "kb_status"
+    ]
   },
-  "tools": [
-    "kb_search",
-    "kb_ingest",
-    "kb_remove",
-    "kb_status"
-  ],
+  "lifecycle": {
+    "activate": {},
+    "shutdown": {}
+  },
   "configSchema": {
     "type": "object",
     "properties": {
@@ -178,7 +181,9 @@
           },
           "paths": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Additional directories to watch (knowledgePath is always watched)"
           },
           "debounceMs": {
@@ -188,16 +193,22 @@
           },
           "ignorePatterns": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Glob patterns to ignore (e.g. *.tmp, .*, ~*)",
-            "default": ["*.tmp", "*.swp", "~*", ".*"]
+            "default": [
+              "*.tmp",
+              "*.swp",
+              "~*",
+              ".*"
+            ]
           }
         }
       },
       "knowledgePath": {
         "type": "string",
-        "description": "Root directory for the knowledge base files",
-        "default": ""
+        "description": "Root directory for the knowledge base files (defaults to ARK_KB_KNOWLEDGE_PATH env var, or ~/knowledge)"
       }
     }
   }

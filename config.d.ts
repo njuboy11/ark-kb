@@ -7,7 +7,7 @@ export interface ArkKBConfig {
         dbPath?: string;
     };
     embedding?: {
-        api?: "qwen3-vl" | "openai" | "custom";
+        api?: "siliconflow" | "dashscope" | "openai" | "custom";
         endpoint?: string;
         apiKey?: string;
         model?: string;
@@ -15,7 +15,7 @@ export interface ArkKBConfig {
         batchSize?: number;
     };
     reranker?: {
-        api?: "siliconflow" | "cohere" | "none";
+        api?: "siliconflow" | "cohere" | "custom" | "none";
         endpoint?: string;
         apiKey?: string;
         model?: string;
@@ -41,6 +41,7 @@ export interface ArkKBConfig {
     };
     watcher?: {
         enabled?: boolean;
+        paths?: string[];
         debounceMs?: number;
         ignorePatterns?: string[];
     };
@@ -51,7 +52,7 @@ export interface ResolvedConfig {
         dbPath: string;
     };
     embedding: {
-        api: "qwen3-vl" | "openai" | "custom";
+        api: "dashscope" | "siliconflow" | "openai" | "custom";
         endpoint: string;
         apiKey: string;
         model: string;
@@ -59,7 +60,7 @@ export interface ResolvedConfig {
         batchSize: number;
     };
     reranker: {
-        api: "siliconflow" | "cohere" | "none";
+        api: "siliconflow" | "cohere" | "custom" | "none";
         endpoint: string;
         apiKey: string;
         model: string;
@@ -85,6 +86,7 @@ export interface ResolvedConfig {
     };
     watcher: {
         enabled: boolean;
+        paths: string[];
         debounceMs: number;
         ignorePatterns: string[];
     };
