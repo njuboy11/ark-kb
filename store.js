@@ -122,9 +122,9 @@ export class KnowledgeStore {
             throw new Error("[Ark KB] Store not initialized — call init() first");
         }
         try {
-            // Try LanceDB FTS query on chunk_text field
+            // Try LanceDB FTS query on chunk_text field (uses FTS index if available)
             const ftsResults = await this.table
-                .search(query, { columns: ["chunk_text"] })
+                .search(query)
                 .limit(topK)
                 .execute();
             const rows = await collectRows(ftsResults);
