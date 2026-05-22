@@ -2,8 +2,9 @@
  * Ark KB — Searcher
  * Hybrid BM25 + vector search with weighted fusion and optional reranking.
  */
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, copyFile } from "node:fs/promises";
+import { join, basename } from "node:path";
+import { existsSync, chmodSync } from "node:fs";
 const RERANKER_PRESETS = {
     siliconflow: {
         "BAAI/bge-reranker-v2-m3": {
@@ -172,7 +173,18 @@ export class Searcher {
         const endpoint = resolveRerankerEndpoint(api, model, userEndpoint);
         const resolvedModel = resolveRerankerModel(api, model);
         try {
-            const documents = results.map(r => r.entry.chunk_text);
+            // Build document list: text → chunk_text, image/video → HTTPS URL
+            const documents = [];
+            for (const r of results) {
+                const ft = r.entry.file_type || "";
+                if (ft === "image" || ft === "video" || ft.startsWith("image/") || ft.startsWith("video/")) {
+                    const url = await this.exposeMediaUrl(r.entry.source_path);
+                    documents.push(url || r.entry.chunk_text);
+                }
+                else {
+                    documents.push(r.entry.chunk_text);
+                }
+            }
             let response;
             switch (api) {
                 case "siliconflow":
@@ -218,6 +230,21 @@ export class Searcher {
         catch (err) {
             console.warn("[Ark KB] Reranker exception: " + err.message + ", falling back to fusion scores");
             return results;
+        }
+    }
+    /** Expose a local media file as HTTPS URL via nginx. */
+    async exposeMediaUrl(sourcePath) {
+        const serveDir = "/var/www/downloads";
+        if (!existsSync(serveDir))
+            return "";
+        const dest = join(serveDir, basename(sourcePath));
+        try {
+            await copyFile(join(this.knowledgePath, sourcePath), dest);
+            chmodSync(dest, 0o644);
+            return `https://home.sfunds.cn:8444/${encodeURIComponent(basename(sourcePath))}`;
+        }
+        catch {
+            return "";
         }
     }
     detectRerankerApi(endpoint, apiKey) {

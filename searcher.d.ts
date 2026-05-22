@@ -46,6 +46,8 @@ export declare class Searcher {
     private applyReranker;
     /** Call a single reranker API and return scored results. Falls back to input on error. */
     private callReranker;
+    /** Expose a local media file as HTTPS URL via nginx. */
+    private exposeMediaUrl;
     private detectRerankerApi;
 }
 //# sourceMappingURL=searcher.d.ts.map

@@ -3,8 +3,9 @@
  * Hybrid BM25 + vector search with weighted fusion and optional reranking.
  */
 
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, copyFile, stat } from "node:fs/promises";
+import { join, basename } from "node:path";
+import { existsSync, chmodSync } from "node:fs";
 import { KnowledgeStore, KBSearchResult, KBEntry } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { SearcherConfig } from "./index.js";
@@ -261,7 +262,17 @@ export class Searcher {
     const resolvedModel = resolveRerankerModel(api, model);
 
     try {
-      const documents = results.map(r => r.entry.chunk_text);
+      // Build document list: text → chunk_text, image/video → HTTPS URL
+      const documents: string[] = [];
+      for (const r of results) {
+        const ft = r.entry.file_type || "";
+        if (ft === "image" || ft === "video" || ft.startsWith("image/") || ft.startsWith("video/")) {
+          const url = await this.exposeMediaUrl(r.entry.source_path);
+          documents.push(url || r.entry.chunk_text);
+        } else {
+          documents.push(r.entry.chunk_text);
+        }
+      }
 
       let response: Response;
 
@@ -314,6 +325,21 @@ export class Searcher {
       return results;
     }
   }
+
+  /** Expose a local media file as HTTPS URL via nginx. */
+  private async exposeMediaUrl(sourcePath: string): Promise<string> {
+    const serveDir = "/var/www/downloads";
+    if (!existsSync(serveDir)) return "";
+    const dest = join(serveDir, basename(sourcePath));
+    try {
+      await copyFile(join(this.knowledgePath, sourcePath), dest);
+      chmodSync(dest, 0o644);
+      return `https://home.sfunds.cn:8444/${encodeURIComponent(basename(sourcePath))}`;
+    } catch {
+      return "";
+    }
+  }
+
 
   private detectRerankerApi(endpoint: string, apiKey: string): "siliconflow" | "cohere" | "custom" | "none" {
     if (!apiKey) return "none";
