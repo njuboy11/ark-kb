@@ -56,6 +56,8 @@ interface RerankerConfig {
 interface RerankerPreset {
   endpoint: string;
   model: string;
+  /** Default minScore for this model (score distributions differ per model) */
+  minScore?: number;
 }
 
 const RERANKER_PRESETS: Record<string, Record<string, RerankerPreset>> = {
@@ -63,20 +65,24 @@ const RERANKER_PRESETS: Record<string, Record<string, RerankerPreset>> = {
     "BAAI/bge-reranker-v2-m3": {
       endpoint: "https://api.siliconflow.cn/v1/rerank",
       model: "BAAI/bge-reranker-v2-m3",
+      minScore: 0.35,
     },
     "Qwen/Qwen3-Reranker-8B": {
       endpoint: "https://api.siliconflow.cn/v1/rerank",
       model: "Qwen/Qwen3-Reranker-8B",
+      minScore: 0.01,
     },
     "Qwen/Qwen3-VL-Reranker-8B": {
       endpoint: "https://api.siliconflow.cn/v1/rerank",
       model: "Qwen/Qwen3-VL-Reranker-8B",
+      minScore: 0.01,
     },
   },
   cohere: {
     "rerank-multilingual-v3.0": {
       endpoint: "https://api.cohere.ai/v1/rerank",
       model: "rerank-multilingual-v3.0",
+      minScore: 0.35,
     },
   },
 };
@@ -90,6 +96,11 @@ function resolveRerankerModel(api: string, model: string, userModel?: string): s
   const preset = RERANKER_PRESETS[api]?.[model];
   if (preset) return preset.model;
   return userModel ?? model;
+}
+
+function resolveRerankerMinScore(api: string, model: string, userMinScore?: number): number {
+  if (userMinScore !== undefined) return userMinScore;
+  return RERANKER_PRESETS[api]?.[model]?.minScore ?? 0.35;
 }
 
 // ============================================================================
@@ -227,7 +238,8 @@ export class Searcher {
     // Rerank text results with text model
     let reranked: KBSearchResult[] = [];
     if (textResults.length > 0 && rc.apiKey) {
-      reranked = await this.callReranker(textResults, query, minScore, rc.api, rc.model, rc.apiKey, rc.endpoint);
+      const textMinScore = resolveRerankerMinScore(rc.api, rc.model, rc.minScore);
+      reranked = await this.callReranker(textResults, query, textMinScore, rc.api, rc.model, rc.apiKey, rc.endpoint);
     } else {
       reranked = textResults;
     }
@@ -236,7 +248,8 @@ export class Searcher {
     const mmCfg = rc.multimodal;
     if (mediaResults.length > 0 && mmCfg?.apiKey) {
       const mmApi = this.detectRerankerApi(mmCfg.endpoint ?? rc.endpoint, mmCfg.apiKey);
-      const mmReranked = await this.callReranker(mediaResults, query, minScore, mmApi, mmCfg.model ?? "", mmCfg.apiKey, mmCfg.endpoint ?? rc.endpoint);
+      const mmMinScore = resolveRerankerMinScore(mmApi, mmCfg.model ?? "", mmCfg.model ? undefined : rc.minScore);
+      const mmReranked = await this.callReranker(mediaResults, query, mmMinScore, mmApi, mmCfg.model ?? "", mmCfg.apiKey, mmCfg.endpoint ?? rc.endpoint);
       reranked.push(...mmReranked);
     } else {
       // No multimodal reranker configured — keep vector scores for media
