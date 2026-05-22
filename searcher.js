@@ -94,6 +94,9 @@ export class Searcher {
         }
         for (const r of normalizedBm25) {
             const key = r.entry.id;
+            // Skip BM25 for image/video — they only have placeholder text, not real content
+            if (Searcher.IMG_EXTS.has(r.entry.file_type) || Searcher.VID_EXTS.has(r.entry.file_type))
+                continue;
             if (scoreMap.has(key)) {
                 const existing = scoreMap.get(key);
                 existing.fusedScore += bm25Weight * r.score;
