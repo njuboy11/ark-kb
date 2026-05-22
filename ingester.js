@@ -497,6 +497,9 @@ export class Ingester {
                 case "image":
                     entries = await processImage(filePath, this.embedder);
                     break;
+                case "video":
+                    entries = await processVideo(filePath, this.embedder, this.videoConfig);
+                    break;
                 case "pdf":
                     entries = await processPdf(filePath, this.embedder, this.config.chunking, this.config.pdfParser);
                     break;
