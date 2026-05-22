@@ -19,6 +19,9 @@ export declare class ArkKB {
     private _initialized;
     constructor(rawConfig?: ArkKBConfig);
     init(): Promise<void>;
+    private failedListPath;
+    private retryFailed;
+    private markFailed;
     search(query: string, options?: {
         topK?: number;
         rerankerEnabled?: boolean;

@@ -99,9 +99,13 @@ export class ArkKB {
         const base = filePath.split("/").pop() || filePath;
         if (event === "add" || event === "change") {
           try {
-            await this.ingester.ingestFile(filePath);
+            const result = await this.ingester.ingestFile(filePath);
+            if (result.entries === 0 && !result.skipped) {
+              this.markFailed(filePath);
+            }
           } catch (err: any) {
             console.error(`[Ark KB] Watcher ingest error (${filePath}): ${err.message}`);
+            this.markFailed(filePath);
           }
         } else if (event === "unlink") {
           try {
@@ -113,19 +117,51 @@ export class ArkKB {
       });
     }
 
-    // Periodic heal: every 10 min, scan for files missed due to network issues
-    if (kp) {
-      const healInterval = setInterval(() => {
-        this.ingester.heal(kp).then(r => {
-          if (r.healed > 0) console.log(`[Ark KB] Periodic heal: ${r.healed} files re-indexed`);
-        }).catch(e => console.error('[Ark KB] Periodic heal error:', e));
-      }, 10 * 60 * 1000);
-      // Don't block process exit
-      if (healInterval.unref) healInterval.unref();
-    }
-
-    this._initialized = true;
+    // this._initialized = true;
     console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
+  }
+
+
+  private failedListPath = "";
+  private async retryFailed(knowledgePath: string): Promise<void> {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    this.failedListPath = path.join(knowledgePath, ".ark-kb-failed.json");
+    if (!fs.existsSync(this.failedListPath)) return;
+
+    let failed: string[] = [];
+    try {
+      failed = JSON.parse(fs.readFileSync(this.failedListPath, "utf-8"));
+    } catch { return; }
+    if (failed.length === 0) return;
+
+    const remaining: string[] = [];
+    for (const filePath of failed) {
+      try {
+        await this.ingester.ingestFile(filePath);
+        console.log(`[Ark KB] Retry succeeded: ${path.basename(filePath)}`);
+      } catch {
+        remaining.push(filePath);
+      }
+    }
+    if (remaining.length === 0) {
+      fs.unlinkSync(this.failedListPath);
+    } else {
+      fs.writeFileSync(this.failedListPath, JSON.stringify(remaining, null, 2));
+    }
+  }
+
+  private async markFailed(filePath: string): Promise<void> {
+    if (!this.failedListPath) return;
+    const fs = await import("node:fs");
+    let failed: string[] = [];
+    if (fs.existsSync(this.failedListPath)) {
+      try { failed = JSON.parse(fs.readFileSync(this.failedListPath, "utf-8")); } catch {}
+    }
+    if (!failed.includes(filePath)) {
+      failed.push(filePath);
+      fs.writeFileSync(this.failedListPath, JSON.stringify(failed, null, 2));
+    }
   }
 
   async search(query: string, options?: {
