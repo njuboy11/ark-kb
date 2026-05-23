@@ -25,7 +25,7 @@ export class EmailIngester {
         this.llmClient = opts.llmClient;
         // State file alongside LanceDB (dbPath parent)
         this.emailStatePath = path.join(homedir(), ".ark-kb", "email-state.json");
-        this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, failed: [] };
+        this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, failed: [], permanentFailures: [] };
     }
     // -------------------------------------------------------------------------
     // Init
@@ -105,6 +105,13 @@ export class EmailIngester {
                             const failedEntry = this.state.failed.find(f => f.uid === email.uid);
                             if (!failedEntry)
                                 continue;
+                            // Skip if this UID has permanently failed (auth error etc.)
+                            if (this.state.permanentFailures && this.state.permanentFailures.includes(email.uid)) {
+                                console.log(`[EmailIngester] Skipping UID ${email.uid} — permanent failure, removing from retry list`);
+                                this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+                                this._saveState();
+                                continue;
+                            }
                             try {
                                 await this._processEmail(email);
                                 // Success — remove from failed list
@@ -146,6 +153,13 @@ export class EmailIngester {
                     const failedEntry = this.state.failed.find(f => f.uid === email.uid);
                     if (failedEntry && failedEntry.retries >= 2) {
                         console.log(`[EmailIngester] Skipping UID ${email.uid} — permanently failed`);
+                        continue;
+                    }
+                    // Skip if uid is in permanent failures (auth error etc.)
+                    if (this.state.permanentFailures && this.state.permanentFailures.includes(email.uid)) {
+                        console.log(`[EmailIngester] Skipping UID ${email.uid} — permanent auth failure`);
+                        // Also remove from failed list if present
+                        this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
                         continue;
                     }
                     // Skip emails without attachments (no-op, don't bump timestamp)
@@ -259,8 +273,19 @@ export class EmailIngester {
                         break;
                     }
                     catch (err) {
-                        retries++;
-                        if (retries > this.config.maxRetries) {
+                        // Auth errors (401) = permanent failure, don't retry
+                        const isAuthError = err.message && (
+                            err.message.includes("401") ||
+                            err.message.includes("user authenticate failed") ||
+                            err.message.includes("A0202")
+                        );
+                        if (isAuthError) {
+                            console.error(`[EmailIngester] Auth failure for UID ${email.uid}: ${err.message} — marking permanent`);
+                            this._recordPermanentFailure(email.uid);
+                            // Don't delete dest file — hash-dedup on next scan will skip it
+                            break;
+                        }
+                        else if (retries >= this.config.maxRetries) {
                             this._recordFailure(email.uid, email.messageId, `Failed to ingest ${path.basename(destPath)}: ${err.message}`, email.internalDate);
                             try {
                                 fs.unlinkSync(destPath);
@@ -268,6 +293,7 @@ export class EmailIngester {
                             catch { }
                         }
                         else {
+                            retries++;
                             await this._sleep(1000 * retries);
                         }
                     }
@@ -546,6 +572,7 @@ export class EmailIngester {
                     lastScan: loaded.lastScan ?? 0,
                     totalProcessed: loaded.totalProcessed ?? 0,
                     failed: loaded.failed ?? [],
+                    permanentFailures: loaded.permanentFailures ?? [],
                 };
             }
         }
@@ -574,6 +601,17 @@ export class EmailIngester {
         }
         // Clean up permanently failed (retries >= 2)
         this.state.failed = this.state.failed.filter(f => f.retries < 2);
+        this._saveState();
+    }
+    _recordPermanentFailure(uid) {
+        if (!this.state.permanentFailures) {
+            this.state.permanentFailures = [];
+        }
+        if (!this.state.permanentFailures.includes(uid)) {
+            this.state.permanentFailures.push(uid);
+        }
+        // Also remove from retryable failed list
+        this.state.failed = this.state.failed.filter(f => f.uid !== uid);
         this._saveState();
     }
     // -------------------------------------------------------------------------
