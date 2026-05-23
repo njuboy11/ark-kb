@@ -7,6 +7,10 @@
  *   ark-kb ingest <file>            Manually ingest a file
  *   ark-kb remove <source>          Remove chunks by source filename
  *   ark-kb status                   Show knowledge base status
+ *   ark-kb create <name>            Create a new knowledge base
+ *   ark-kb delete <name>             Delete a knowledge base
+ *   ark-kb list                     List all knowledge bases
+ *   ark-kb config                   Print resolved config
  */
 
 import { resolveConfig, loadConfigFromFile } from "./config.js";
@@ -27,25 +31,30 @@ Usage:
   ark-kb ingest <file>            Manually ingest a file
   ark-kb remove <source>          Remove all chunks for a source filename
   ark-kb status                   Show knowledge base status
+  ark-kb create <name>            Create a new knowledge base
+  ark-kb delete <name>            Delete a knowledge base
+  ark-kb list                     List all knowledge bases
   ark-kb config                   Print resolved config
 
 Options:
+  --kb <name>                     Target knowledge base name (for search/remove/status)
   --no-rerank                     Disable reranker for search
   --top <n>                       Number of results (default: 6)
   --verbose                       Show detailed output
+  --confirm                       Confirm destructive actions (delete)
   --config <path>                 Path to plugin-config.json (default: auto-detect)
 
 Examples:
   ark-kb search "锂电池 市场规模"
+  ark-kb search "电池" --kb medical
   ark-kb ingest /root/knowledge/video.mp4
-  ark-kb remove video.mp4
-  ark-kb status --verbose
+  ark-kb remove video.mp4 --kb medical
+  ark-kb status --kb medical --verbose
+  ark-kb create my-kb
+  ark-kb delete my-kb --confirm
+  ark-kb list
 `);
 }
-
-// ============================================================================
-// Embedded in-memory store adapter (no OpenClaw runtime needed)
-// ============================================================================
 
 // ============================================================================
 // Main
@@ -82,6 +91,9 @@ async function main(): Promise<void> {
   const core = new ArkKB(fileResult.config);
   await core.init();
 
+  // Shared --kb option
+  const kbName = args.kb as string | undefined;
+
   try {
     switch (cmd) {
       case "search": {
@@ -89,6 +101,7 @@ async function main(): Promise<void> {
         if (!query) { console.error("❌ Missing search query"); process.exit(1); }
 
         const result = await core.search(query, {
+          kbName,
           rerankerEnabled: !args["no-rerank"],
           resultCount: args.top ?? 6,
         });
@@ -136,13 +149,13 @@ async function main(): Promise<void> {
       case "remove": {
         const source = args._[1];
         if (!source) { console.error("❌ Missing source filename"); process.exit(1); }
-        const removed = await core.removeSource(source);
+        const removed = await core.removeSource(source, kbName);
         console.log(`🗑  Removed ${removed} chunks for: ${source}`);
         break;
       }
 
       case "status": {
-        const status = await core.status();
+        const status = await core.status(kbName);
         console.log(`Chunks: ${status.chunkCount}`);
         console.log(`Files:  ${status.sources.length}`);
         if (args.verbose && status.sources.length > 0) {
@@ -152,6 +165,39 @@ async function main(): Promise<void> {
         console.log(`DB:     ${resolved.storage.dbPath}`);
         console.log(`Emb:    ${resolved.embedding.model} (${resolved.embedding.dimensions}d)`);
         console.log(`Mode:   ${resolved.embeddingMode} | img=${resolved.image.rerankerMode} vid=${resolved.video.rerankerMode}`);
+        break;
+      }
+
+      case "create": {
+        const name = args._[1];
+        if (!name) { console.error("❌ Missing knowledge base name"); process.exit(1); }
+        await core.createKB(name);
+        console.log(`Created KB: ${name}`);
+        break;
+      }
+
+      case "delete": {
+        const name = args._[1];
+        if (!name) { console.error("❌ Missing knowledge base name"); process.exit(1); }
+        if (!args.confirm) {
+          console.log(`⚠️  This will PERMANENTLY delete the knowledge base "${name}" and all its data.`);
+          console.log(`   To confirm, run: ark-kb delete ${name} --confirm`);
+          process.exit(1);
+        }
+        await core.deleteKB(name, true);
+        console.log(`Deleted KB: ${name}`);
+        break;
+      }
+
+      case "list": {
+        const kbs = await core.listKBs();
+        if (kbs.length === 0) {
+          console.log("(no knowledge bases)");
+        } else {
+          for (const kb of kbs) {
+            console.log(`${kb.name}  files=${kb.fileCount}  chunks=${kb.chunkCount}`);
+          }
+        }
         break;
       }
 
@@ -178,7 +224,9 @@ async function main(): Promise<void> {
 interface ParsedArgs {
   _: string[];
   help?: boolean;
+  kb?: string;
   "no-rerank"?: boolean;
+  confirm?: boolean;
   top?: number;
   verbose?: boolean;
   config?: string;
@@ -191,8 +239,13 @@ function parseArgs(raw: string[]): ParsedArgs {
   while (i < raw.length) {
     if (raw[i] === "--help" || raw[i] === "-h") {
       result.help = true;
+    } else if (raw[i] === "--kb" && raw[i + 1]) {
+      result.kb = raw[i + 1];
+      i++;
     } else if (raw[i] === "--no-rerank") {
       result["no-rerank"] = true;
+    } else if (raw[i] === "--confirm") {
+      result.confirm = true;
     } else if (raw[i] === "--verbose" || raw[i] === "-v") {
       result.verbose = true;
     } else if (raw[i] === "--top" && raw[i + 1]) {

@@ -46,9 +46,10 @@ export interface KBSearchResult {
   score: number;
 }
 
-export interface StoreConfig {
+export interface StoreOptions {
   dbPath: string;
   vectorDim: number;
+  tableName?: string;   // defaults to "default"
 }
 
 // ============================================================================
@@ -58,10 +59,28 @@ export interface StoreConfig {
 export class KnowledgeStore {
   private db: any = null;
   private table: any = null;
-  private config: StoreConfig;
+  private config: StoreOptions;
+  private tableName: string;
 
-  constructor(config: StoreConfig) {
+  constructor(config: StoreOptions) {
     this.config = config;
+    this.tableName = config.tableName ?? "default";
+  }
+
+  /**
+   * List all table names in a LanceDB database.
+   */
+  static async listTables(opts: { dbPath: string }): Promise<string[]> {
+    const lancedb = await import("@lancedb/lancedb");
+    const dbDir = opts.dbPath.startsWith("~")
+      ? path.join(process.env.HOME || "/root", opts.dbPath.slice(1))
+      : opts.dbPath;
+    const db = await lancedb.connect(dbDir);
+    try {
+      return await db.tableNames();
+    } finally {
+      if (db?.close) db.close();
+    }
   }
 
   async init(): Promise<void> {
@@ -76,11 +95,11 @@ export class KnowledgeStore {
     this.db = await lancedb.connect(dbDir);
     const tableNames = await this.db.tableNames();
 
-    if (tableNames.includes("knowledge_base")) {
-      this.table = await this.db.openTable("knowledge_base");
+    if (tableNames.includes(this.tableName)) {
+      this.table = await this.db.openTable(this.tableName);
     } else {
       // Create table with a dummy row then delete it
-      this.table = await this.db.createTable("knowledge_base", [
+      this.table = await this.db.createTable(this.tableName, [
         {
           id: "dummy_init",
           chunk_text: "",
@@ -104,17 +123,45 @@ export class KnowledgeStore {
       const hasFts = indices.some((i: any) => i.name === "chunk_text_idx");
       if (!hasFts) {
         await this.table.createIndex("chunk_text", { config: lancedb.Index.fts({ withPosition: true }) });
-        console.log("[Ark KB] BM25 FTS index created on chunk_text");
+        console.log(`[Ark KB] BM25 FTS index created on table "${this.tableName}"`);
       }
     } catch (err: any) {
       console.warn("[Ark KB] Failed to create FTS index:", err.message);
     }
 
-    console.log(`[Ark KB] LanceDB connected: ${dbDir}`);
+    console.log(`[Ark KB] LanceDB connected: ${dbDir} [table="${this.tableName}"]`);
   }
 
   /**
-   * InsertKBEntry array in a single batch.
+   * Drop (delete) the current table from the database.
+   */
+  async drop(): Promise<void> {
+    if (!this.db) {
+      throw new Error("[Ark KB] Store not initialized — call init() first");
+    }
+    await this.db.dropTable(this.tableName);
+    this.table = null;
+    console.log(`[Ark KB] Table "${this.tableName}" dropped`);
+  }
+
+  /**
+   * Return information about the current table.
+   */
+  async tableInfo(): Promise<{ chunks: number; files: string[] }> {
+    if (!this.table) {
+      throw new Error("[Ark KB] Store not initialized — call init() first");
+    }
+    const chunks = await this.table.countRows();
+    const results = await this.table.query().select(["source_path"]).execute();
+    const rows = await collectRows(results);
+    const files = rows
+      .map((r: any) => r.source_path)
+      .filter((s: unknown): s is string => typeof s === "string" && s.length > 0);
+    return { chunks, files: [...new Set(files)] };
+  }
+
+  /**
+   * Insert KBEntry array in a single batch.
    */
   async insert(entries: KBEntry[]): Promise<void> {
     if (!this.table) {
@@ -125,9 +172,8 @@ export class KnowledgeStore {
   }
 
   /**
-   * Vector ANN search + BM25 FTS hybrid search.
-   * Returns merged results sorted by weighted score.
-   * Note: LanceDB's FTS requires explicit field index — we query raw and sort.
+   * Vector ANN search.
+   * Returns results sorted by distance score.
    */
   async search(queryVector: number[], topK: number): Promise<KBSearchResult[]> {
     if (!this.table) {

@@ -1,6 +1,7 @@
 /**
  * Ark KB — Tool Registration
- * Registers kb_search, kb_ingest, kb_remove, kb_status tools with OpenClaw.
+ * Registers kb_search, kb_ingest, kb_remove, kb_status,
+ * kb_create, kb_delete, kb_list tools with OpenClaw.
  */
 
 import { ArkKB } from "./index.js";
@@ -33,18 +34,25 @@ export function registerKBTools(ark: ArkKB) {
             type: "number",
             description: "Number of results to return (1-20, default: from config, typically 6).",
           },
+          kb: {
+            type: "string",
+            description:
+              "Optional knowledge base name to search within. " +
+              "If omitted, searches across all knowledge bases.",
+          },
         },
         required: ["query"],
       },
 
       async execute(
         _toolCallId: string,
-        params: { query: string; count?: number },
+        params: { query: string; count?: number; kb?: string },
       ) {
         try {
           const results = await ark.search(params.query, {
             resultCount: params.count,
             rerankerEnabled: true,
+            kbName: params.kb,
           });
 
           if (results.length === 0) {
@@ -103,7 +111,7 @@ export function registerKBTools(ark: ArkKB) {
       description:
         "Manually trigger indexing of a file or all files in the knowledge base folder. " +
         "Use when files have been added or modified and you want immediate indexing " +
-        "without waiting for the file watcher.",
+        "without waiting for the file watcher. File is automatically routed by path.",
       parameters: {
         type: "object",
         properties: {
@@ -172,18 +180,28 @@ export function registerKBTools(ark: ArkKB) {
             description:
               "Source file basename (e.g. 'product-manual.pdf') to remove from index.",
           },
+          kb: {
+            type: "string",
+            description:
+              "Optional knowledge base name. " +
+              "If omitted, removes from the default/global knowledge base.",
+          },
         },
         required: ["sourcePath"],
       },
 
-      async execute(_toolCallId: string, params: { sourcePath: string }) {
+      async execute(
+        _toolCallId: string,
+        params: { sourcePath: string; kb?: string },
+      ) {
         try {
-          const deleted = await ark.removeSource(params.sourcePath);
+          const deleted = await ark.removeSource(params.sourcePath, params.kb);
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Removed ${deleted} chunks for source: ${params.sourcePath}`,
+                text: `Removed ${deleted} chunks for source: ${params.sourcePath}` +
+                  (params.kb ? ` (KB: ${params.kb})` : ""),
               },
             ],
           };
@@ -210,20 +228,33 @@ export function registerKBTools(ark: ArkKB) {
         "Use to check health and see what files are indexed.",
       parameters: {
         type: "object",
-        properties: {},
+        properties: {
+          kb: {
+            type: "string",
+            description:
+              "Optional knowledge base name. " +
+              "If omitted, shows status for the default/global knowledge base.",
+          },
+        },
       },
 
-      async execute() {
+      async execute(_toolCallId: string, params: { kb?: string }) {
         try {
-          const { chunkCount, sources } = await ark.status();
+          const status = await ark.status(params.kb);
           const cfg = ark.config;
+          const chunkCount = typeof status === "object" && "chunkCount" in status
+            ? status.chunkCount
+            : status;
+          const sources = typeof status === "object" && "sources" in status
+            ? status.sources
+            : [];
 
           return {
             content: [
               {
                 type: "text" as const,
                 text:
-                  `**Ark KB Status**\n` +
+                  `**Ark KB Status**${params.kb ? ` (KB: ${params.kb})` : ""}\n` +
                   `- Chunks: ${chunkCount}\n` +
                   `- Files: ${sources.length}\n` +
                   (sources.length > 0 ? `- File list: ${sources.join(", ")}\n` : "") +
@@ -251,5 +282,176 @@ export function registerKBTools(ark: ArkKB) {
         }
       },
     },
+
+    // ====================================================================
+    // kb_create — Create a new knowledge base
+    // ====================================================================
+    {
+      name: "kb_create",
+      description:
+        "Create a new knowledge base. " +
+        "Use when the user wants to create a new, separate knowledge base.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Name of the new knowledge base to create.",
+          },
+        },
+        required: ["name"],
+      },
+
+      async execute(_toolCallId: string, params: { name: string }) {
+        try {
+          await ark.createKB(params.name);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `✅ Knowledge base "${params.name}" created successfully.`,
+              },
+            ],
+          };
+        } catch (err: any) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `❌ Failed to create knowledge base "${params.name}": ${err.message}`,
+              },
+            ],
+          };
+        }
+      },
+    },
+
+    // ====================================================================
+    // kb_delete — Delete a knowledge base
+    // ====================================================================
+    {
+      name: "kb_delete",
+      description:
+        "Delete a knowledge base and all its indexed data. " +
+        "⚠️ This action is irreversible. Pass confirm=true to proceed with deletion.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Name of the knowledge base to delete.",
+          },
+          confirm: {
+            type: "boolean",
+            description:
+              "Set to true to confirm deletion. " +
+              "If false or omitted, returns a warning prompt instead of deleting.",
+          },
+        },
+        required: ["name"],
+      },
+
+      async execute(
+        _toolCallId: string,
+        params: { name: string; confirm?: boolean },
+      ) {
+        // confirm=true → actually delete
+        if (params.confirm === true) {
+          try {
+            await ark.deleteKB(params.name, true);
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `🗑️ Knowledge base "${params.name}" has been deleted.`,
+                },
+              ],
+            };
+          } catch (err: any) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `❌ Failed to delete knowledge base "${params.name}": ${err.message}`,
+                },
+              ],
+            };
+          }
+        }
+
+        // confirm=false or omitted → return confirmation prompt
+        const promptResult = await ark.deleteKB(params.name, false);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `⚠️ **Risk Warning**\n` +
+                `Deleting the knowledge base **"${params.name}"** will permanently remove all indexed data and cannot be undone.\n\n` +
+                `To confirm deletion, run the same command again with \`confirm: true\`.\n\n` +
+                (promptResult
+                  ? `Additional confirmation from system:\n${promptResult}`
+                  : ""),
+            },
+          ],
+        };
+      },
+    },
+
+    // ====================================================================
+    // kb_list — List all knowledge bases
+    // ====================================================================
+    {
+      name: "kb_list",
+      description:
+        "List all knowledge bases with their chunk counts and file counts. " +
+        "Use when the user wants to see what knowledge bases exist.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+
+      async execute() {
+        try {
+          const kbs = await ark.listKBs();
+
+          if (!kbs || kbs.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "No knowledge bases found.",
+                },
+              ],
+            };
+          }
+
+          const lines = kbs.map(
+            kb =>
+              `- **${kb.name}** — ${kb.chunkCount ?? "?"} chunks, ${kb.fileCount ?? "?"} files` +
+              (kb.path ? ` (path: ${kb.path})` : ""),
+          );
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `**Knowledge Bases (${kbs.length})**\n${lines.join("\n")}`,
+              },
+            ],
+          };
+        } catch (err: any) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Failed to list knowledge bases: ${err.message}`,
+              },
+            ],
+          };
+        }
+      },
+    },
+
   ];
 }

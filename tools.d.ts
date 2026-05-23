@@ -1,6 +1,7 @@
 /**
  * Ark KB — Tool Registration
- * Registers kb_search, kb_ingest, kb_remove, kb_status tools with OpenClaw.
+ * Registers kb_search, kb_ingest, kb_remove, kb_status,
+ * kb_create, kb_delete, kb_list tools with OpenClaw.
  */
 import { ArkKB } from "./index.js";
 export declare function registerKBTools(ark: ArkKB): ({
@@ -17,14 +18,21 @@ export declare function registerKBTools(ark: ArkKB): ({
                 type: string;
                 description: string;
             };
+            kb: {
+                type: string;
+                description: string;
+            };
             filePath?: undefined;
             sourcePath?: undefined;
+            name?: undefined;
+            confirm?: undefined;
         };
         required: string[];
     };
     execute(_toolCallId: string, params: {
         query: string;
         count?: number;
+        kb?: string;
     }): Promise<{
         content: {
             type: "text";
@@ -60,7 +68,10 @@ export declare function registerKBTools(ark: ArkKB): ({
             };
             query?: undefined;
             count?: undefined;
+            kb?: undefined;
             sourcePath?: undefined;
+            name?: undefined;
+            confirm?: undefined;
         };
         required?: undefined;
     };
@@ -82,14 +93,106 @@ export declare function registerKBTools(ark: ArkKB): ({
                 type: string;
                 description: string;
             };
+            kb: {
+                type: string;
+                description: string;
+            };
             query?: undefined;
             count?: undefined;
             filePath?: undefined;
+            name?: undefined;
+            confirm?: undefined;
         };
         required: string[];
     };
     execute(_toolCallId: string, params: {
         sourcePath: string;
+        kb?: string;
+    }): Promise<{
+        content: {
+            type: "text";
+            text: string;
+        }[];
+    }>;
+} | {
+    name: string;
+    description: string;
+    parameters: {
+        type: string;
+        properties: {
+            kb: {
+                type: string;
+                description: string;
+            };
+            query?: undefined;
+            count?: undefined;
+            filePath?: undefined;
+            sourcePath?: undefined;
+            name?: undefined;
+            confirm?: undefined;
+        };
+        required?: undefined;
+    };
+    execute(_toolCallId: string, params: {
+        kb?: string;
+    }): Promise<{
+        content: {
+            type: "text";
+            text: string;
+        }[];
+    }>;
+} | {
+    name: string;
+    description: string;
+    parameters: {
+        type: string;
+        properties: {
+            name: {
+                type: string;
+                description: string;
+            };
+            query?: undefined;
+            count?: undefined;
+            kb?: undefined;
+            filePath?: undefined;
+            sourcePath?: undefined;
+            confirm?: undefined;
+        };
+        required: string[];
+    };
+    execute(_toolCallId: string, params: {
+        name: string;
+    }): Promise<{
+        content: {
+            type: "text";
+            text: string;
+        }[];
+    }>;
+} | {
+    name: string;
+    description: string;
+    parameters: {
+        type: string;
+        properties: {
+            name: {
+                type: string;
+                description: string;
+            };
+            confirm: {
+                type: string;
+                description: string;
+            };
+            query?: undefined;
+            count?: undefined;
+            kb?: undefined;
+            filePath?: undefined;
+            sourcePath?: undefined;
+        };
+        required: string[];
+    };
+    execute(_toolCallId: string, params: {
+        name: string;
+        confirm?: boolean;
     }): Promise<{
         content: {
             type: "text";
@@ -104,8 +207,11 @@ export declare function registerKBTools(ark: ArkKB): ({
         properties: {
             query?: undefined;
             count?: undefined;
+            kb?: undefined;
             filePath?: undefined;
             sourcePath?: undefined;
+            name?: undefined;
+            confirm?: undefined;
         };
         required?: undefined;
     };

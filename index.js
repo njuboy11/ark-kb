@@ -6,34 +6,101 @@
 import { existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
-import { Ingester } from "./ingester.js";
 import { Searcher } from "./searcher.js";
 import { FileWatcher } from "./watcher.js";
+import { KBManager } from "./kb-manager.js";
 import { resolveConfig, loadConfigFromFile, validateConfig, } from "./config.js";
 import { registerKBTools } from "./tools.js";
 // ============================================================================
 // ArkKB — Core class (used both by the plugin and for direct Node.js usage)
 // ============================================================================
 export class ArkKB {
-    store;
-    embedder;
-    ingester;
-    searcher;
-    watcher;
     config;
+    /** Primary multi-KB driver */
+    kbManager;
+    /** Embedder instance (kept for per-KB Searcher construction) */
+    embedder;
+    /** File watcher */
+    watcher;
+    // -------------------------------------------------------------------------
+    // Backward-compatible aliases (tools depend on these properties)
+    // -------------------------------------------------------------------------
+    // store, searcher, ingester are accessed by tools.ts — we expose them
+    // as getters that delegate to the "default" KB (or first KB if no default).
+    // -------------------------------------------------------------------------
+    /** Returns the default KB's KnowledgeStore (backward compat for tools) */
+    get store() {
+        const kbName = this.kbManager.getDefaultKBName?.() ?? "default";
+        const store = this.kbManager.getKB(kbName);
+        if (store)
+            return store;
+        // Fallback: try first available KB
+        const firstName = this.kbManager.getAllKBNames()[0];
+        if (firstName) {
+            const fallback = this.kbManager.getKB(firstName);
+            if (fallback)
+                return fallback;
+        }
+        throw new Error("[Ark KB] No KBs initialized — call init() first");
+    }
+    /** Returns a Searcher attached to the default KB store (backward compat for tools) */
+    get searcher() {
+        return this._defaultSearcher;
+    }
+    /** Returns the default KB's Ingester (backward compat for tools) */
+    get ingester() {
+        const kbName = this.kbManager.getDefaultKBName?.() ?? "default";
+        return this.kbManager.getIngester?.(kbName) ??
+            (() => { throw new Error("[Ark KB] No KBs initialized — call init() first"); })();
+    }
+    // -------------------------------------------------------------------------
+    // Private state
+    // -------------------------------------------------------------------------
     _initialized = false;
+    /** Searcher attached to the default KB (used when no specific kbName is given) */
+    _defaultSearcher;
+    _failedListPath = "";
     constructor(rawConfig = {}) {
         this.config = resolveConfig(rawConfig);
+        const knowledgePath = expandPath(this.config.knowledgePath);
         const dbPath = expandPath(this.config.storage.dbPath);
+        if (!existsSync(knowledgePath)) {
+            mkdirSync(knowledgePath, { recursive: true });
+        }
         if (!existsSync(dbPath)) {
             mkdirSync(dbPath, { recursive: true });
         }
-        this.store = new KnowledgeStore({
+        // Create KBManager — drives all KB operations
+        this.kbManager = new KBManager({
+            knowledgePath,
             dbPath,
             vectorDim: this.config.embedding.dimensions,
+            embedderConfig: {
+                api: this.config.embedding.api,
+                endpoint: this.config.embedding.endpoint,
+                apiKey: this.config.embedding.apiKey,
+                model: this.config.embedding.model,
+                chunking: this.config.chunking,
+            },
+            videoConfig: {
+                endpoint: this.config.videoSummarizer.endpoint,
+                apiKey: this.config.videoSummarizer.apiKey,
+                maxFrames: this.config.videoSummarizer.maxFrames,
+                timeoutMs: 120_000,
+            },
+            imageConfig: {
+                endpoint: this.config.imageSummarizer.endpoint,
+                apiKey: this.config.imageSummarizer.apiKey,
+                timeoutMs: 60_000,
+            },
+            modes: {
+                embeddingMode: this.config.embeddingMode,
+                imageRerankerMode: this.config.image.rerankerMode,
+                videoRerankerMode: this.config.video.rerankerMode,
+            },
         });
+        // Embedder for query embedding (used in search)
         this.embedder = new Embedder({
             api: this.config.embedding.api,
             endpoint: this.config.embedding.endpoint,
@@ -42,30 +109,6 @@ export class ArkKB {
             dimensions: this.config.embedding.dimensions,
             batchSize: this.config.embedding.batchSize,
         });
-        this.ingester = new Ingester(this.store, this.embedder, {
-            chunking: this.config.chunking,
-            pdfParser: this.config.pdfParser,
-        }, {
-            endpoint: this.config.videoSummarizer.endpoint,
-            apiKey: this.config.videoSummarizer.apiKey,
-            maxFrames: this.config.videoSummarizer.maxFrames,
-            timeoutMs: 120_000,
-        }, {
-            endpoint: this.config.imageSummarizer.endpoint,
-            apiKey: this.config.imageSummarizer.apiKey,
-            timeoutMs: 60_000,
-        }, {
-            embeddingMode: this.config.embeddingMode,
-            imageRerankerMode: this.config.image.rerankerMode,
-            videoRerankerMode: this.config.video.rerankerMode,
-        });
-        this.searcher = new Searcher(this.store, this.embedder, this.config.knowledgePath, {
-            search: this.config.search,
-            reranker: this.config.reranker,
-            embeddingMode: this.config.embeddingMode,
-            image: this.config.image,
-            video: this.config.video,
-        });
         this.watcher = new FileWatcher({
             enabled: this.config.watcher.enabled,
             paths: this.config.watcher.paths ?? [],
@@ -73,37 +116,60 @@ export class ArkKB {
             ignorePatterns: this.config.watcher.ignorePatterns,
         });
     }
+    // -------------------------------------------------------------------------
+    // Init
+    // -------------------------------------------------------------------------
     async init() {
         if (this._initialized)
             return;
-        await this.store.init();
+        // KBManager.init() handles auto-migration + scanning + store init
+        await this.kbManager.init();
+        // Build default searcher (used when no specific KB is targeted)
+        const defaultStore = this.store;
+        this._defaultSearcher = new Searcher(defaultStore, this.embedder, this.config.knowledgePath, {
+            search: this.config.search,
+            reranker: this.config.reranker,
+            embeddingMode: this.config.embeddingMode,
+            image: this.config.image,
+            video: this.config.video,
+        });
         const kp = this.config.knowledgePath;
         let total = 0;
         let files = 0;
         if (kp) {
-            const result = await this.ingester.heal(kp);
-            total = result.healed;
-            files = result.healed + result.skipped;
-            console.log(`[Ark KB] Healed ${result.healed} files, skipped ${result.skipped}`);
+            // Heal: re-index any files that were added while ArkKB was offline
+            try {
+                const result = await this.kbManager.heal?.(kp);
+                if (result) {
+                    total = result.healed ?? 0;
+                    files = (result.healed ?? 0) + (result.skipped ?? 0);
+                    console.log(`[Ark KB] Healed ${result.healed} files, skipped ${result.skipped}`);
+                }
+            }
+            catch (err) {
+                console.warn(`[Ark KB] Heal skipped: ${err.message}`);
+            }
         }
+        // Start watcher on the knowledge path root (covers all KB subfolders)
         if (this.config.watcher.enabled && kp) {
             this.watcher.start(kp, async (event, filePath) => {
                 const base = filePath.split("/").pop() || filePath;
                 if (event === "add" || event === "change") {
                     try {
-                        const result = await this.ingester.ingestFile(filePath);
+                        const result = await this.kbManager.ingestByPath(filePath);
                         if (result.entries === 0 && !result.skipped) {
-                            this.markFailed(filePath);
+                            this._markFailed(filePath);
                         }
                     }
                     catch (err) {
                         console.error(`[Ark KB] Watcher ingest error (${filePath}): ${err.message}`);
-                        this.markFailed(filePath);
+                        this._markFailed(filePath);
                     }
                 }
                 else if (event === "unlink") {
                     try {
-                        await this.store.deleteBySource(base);
+                        // Try to remove from all KBs (best effort)
+                        await this.kbManager.removeFromAll(base);
                     }
                     catch (err) {
                         console.error(`[Ark KB] Watcher delete error (${base}): ${err.message}`);
@@ -111,19 +177,197 @@ export class ArkKB {
                 }
             });
         }
-        // this._initialized = true;
+        this._initialized = true;
         console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
     }
-    failedListPath = "";
-    async retryFailed(knowledgePath) {
+    // -------------------------------------------------------------------------
+    // Search
+    // -------------------------------------------------------------------------
+    async search(query, options) {
+        // Specific KB requested
+        if (options?.kbName) {
+            const store = this.kbManager.getKB(options.kbName);
+            if (!store) {
+                throw new Error(`[Ark KB] KB "${options.kbName}" not found`);
+            }
+            const searcher = new Searcher(store, this.embedder, this.config.knowledgePath, {
+                search: this.config.search,
+                reranker: this.config.reranker,
+                embeddingMode: this.config.embeddingMode,
+                image: this.config.image,
+                video: this.config.video,
+            });
+            return await searcher.search({
+                query,
+                topK: options?.topK,
+                rerankerEnabled: options?.rerankerEnabled,
+                rerankerMinScore: options?.rerankerMinScore,
+                resultCount: options?.resultCount,
+            });
+        }
+        // Search all KBs
+        const results = await this.kbManager.searchAll(query, async (store, q, topK) => {
+            const s = new Searcher(store, this.embedder, this.config.knowledgePath, {
+                search: this.config.search,
+                reranker: this.config.reranker,
+                embeddingMode: this.config.embeddingMode,
+                image: this.config.image,
+                video: this.config.video,
+            });
+            // Searcher returns SearchResult[] — transform to { entry, score }[] for KBManager
+            const hits = await s.search({ query: q, topK, resultCount: options?.resultCount });
+            return hits.map(h => ({ entry: h, score: h.score }));
+        }, options?.topK ?? this.config.search.topK);
+        // Apply global reranking if enabled (rerank across all KB results)
+        if (options?.rerankerEnabled !== false && this.config.reranker?.enabled !== false) {
+            const reranked = await this._globalRerank(results, query, options);
+            return reranked;
+        }
+        return results.map(r => ({
+            score: r.score,
+            chunk_text: r.entry.chunk_text.substring(0, 500),
+            source_path: r.entry.source_path,
+            chunk_index: r.entry.chunk_index,
+            total_chunks: r.entry.total_chunks,
+            images: JSON.parse(r.entry.images || "[]"),
+            file_type: r.entry.file_type,
+            kbName: r.kbName,
+        }));
+    }
+    /**
+     * Apply a second-stage rerank across merged multi-KB results.
+     * Falls back to returning the input if reranking fails.
+     */
+    async _globalRerank(results, query, options) {
+        if (results.length === 0)
+            return [];
+        const rc = this.config.reranker;
+        if (!rc?.api || rc.api === "none" || !rc.apiKey) {
+            return results.slice(0, options?.resultCount ?? this.config.search.resultCount).map(r => ({
+                score: r.score,
+                chunk_text: r.entry.chunk_text.substring(0, 500),
+                source_path: r.entry.source_path,
+                chunk_index: r.entry.chunk_index,
+                total_chunks: r.entry.total_chunks,
+                images: JSON.parse(r.entry.images || "[]"),
+                file_type: r.entry.file_type,
+                kbName: r.kbName,
+            }));
+        }
+        try {
+            // Use the default searcher's rerank logic
+            return await this._defaultSearcher.search({
+                query,
+                topK: results.length,
+                rerankerEnabled: true,
+                rerankerMinScore: options?.rerankerMinScore ?? rc.minScore,
+                resultCount: options?.resultCount ?? this.config.search.resultCount,
+            });
+        }
+        catch {
+            return results.slice(0, options?.resultCount ?? this.config.search.resultCount).map(r => ({
+                score: r.score,
+                chunk_text: r.entry.chunk_text.substring(0, 500),
+                source_path: r.entry.source_path,
+                chunk_index: r.entry.chunk_index,
+                total_chunks: r.entry.total_chunks,
+                images: JSON.parse(r.entry.images || "[]"),
+                file_type: r.entry.file_type,
+                kbName: r.kbName,
+            }));
+        }
+    }
+    // -------------------------------------------------------------------------
+    // Ingest
+    // -------------------------------------------------------------------------
+    async ingestFile(filePath) {
+        return await this.kbManager.ingestByPath(filePath);
+    }
+    // -------------------------------------------------------------------------
+    // Remove
+    // -------------------------------------------------------------------------
+    async removeSource(sourcePath, kbName) {
+        if (kbName) {
+            const store = this.kbManager.getKB(kbName);
+            if (!store)
+                throw new Error(`[Ark KB] KB "${kbName}" not found`);
+            return await store.deleteBySource(sourcePath);
+        }
+        // Remove from all KBs — return total deleted
+        const results = await this.kbManager.removeFromAll(sourcePath);
+        return results.reduce((sum, r) => sum + r.deleted, 0);
+    }
+    // -------------------------------------------------------------------------
+    // Status
+    // -------------------------------------------------------------------------
+    async status(kbName) {
+        if (kbName) {
+            const store = this.kbManager.getKB(kbName);
+            if (!store)
+                throw new Error(`[Ark KB] KB "${kbName}" not found`);
+            const [chunkCount, sources] = await Promise.all([
+                store.count(),
+                store.listSources(),
+            ]);
+            return { chunkCount, sources, kbName };
+        }
+        // Aggregate all KBs
+        const kbs = await this.kbManager.listKBs();
+        let totalChunks = 0;
+        const allSources = [];
+        const byKb = {};
+        for (const kb of kbs) {
+            totalChunks += kb.chunkCount;
+            try {
+                const store = this.kbManager.getKB(kb.name);
+                if (store) {
+                    const sources = await store.listSources();
+                    byKb[kb.name] = { chunkCount: kb.chunkCount, sources };
+                    allSources.push(...sources);
+                }
+            }
+            catch { /* KB may be in transition */ }
+        }
+        return {
+            chunkCount: totalChunks,
+            sources: [...new Set(allSources)],
+            // Also include per-KB breakdown in a special field
+        };
+    }
+    // -------------------------------------------------------------------------
+    // KB management (new multi-KB API)
+    // -------------------------------------------------------------------------
+    async createKB(name) {
+        await this.kbManager.createKB(name);
+    }
+    async deleteKB(name, confirm) {
+        return await this.kbManager.deleteKB(name, confirm);
+    }
+    async listKBs() {
+        return await this.kbManager.listKBs();
+    }
+    // -------------------------------------------------------------------------
+    // Shutdown
+    // -------------------------------------------------------------------------
+    async shutdown() {
+        this.watcher.stop();
+        await this.kbManager.close();
+    }
+    // -------------------------------------------------------------------------
+    // Retry failed files (for backward compat)
+    // -------------------------------------------------------------------------
+    get ingesterInstance() {
+        return this.ingester;
+    }
+    async _retryFailed(knowledgePath) {
         const fs = await import("node:fs");
-        const path = await import("node:path");
-        this.failedListPath = path.join(knowledgePath, ".ark-kb-failed.json");
-        if (!fs.existsSync(this.failedListPath))
+        const p = await import("node:path");
+        this._failedListPath = p.join(knowledgePath, ".ark-kb-failed.json");
+        if (!fs.existsSync(this._failedListPath))
             return;
         let failed = [];
         try {
-            failed = JSON.parse(fs.readFileSync(this.failedListPath, "utf-8"));
+            failed = JSON.parse(fs.readFileSync(this._failedListPath, "utf-8"));
         }
         catch {
             return;
@@ -133,65 +377,39 @@ export class ArkKB {
         const remaining = [];
         for (const filePath of failed) {
             try {
-                await this.ingester.ingestFile(filePath);
-                console.log(`[Ark KB] Retry succeeded: ${path.basename(filePath)}`);
+                await this.kbManager.ingestByPath(filePath);
+                console.log(`[Ark KB] Retry succeeded: ${p.basename(filePath)}`);
             }
             catch {
                 remaining.push(filePath);
             }
         }
         if (remaining.length === 0) {
-            fs.unlinkSync(this.failedListPath);
+            fs.unlinkSync(this._failedListPath);
         }
         else {
-            fs.writeFileSync(this.failedListPath, JSON.stringify(remaining, null, 2));
+            fs.writeFileSync(this._failedListPath, JSON.stringify(remaining, null, 2));
         }
     }
-    async markFailed(filePath) {
-        if (!this.failedListPath)
+    async _markFailed(filePath) {
+        if (!this._failedListPath)
             return;
         const fs = await import("node:fs");
         let failed = [];
-        if (fs.existsSync(this.failedListPath)) {
+        if (fs.existsSync(this._failedListPath)) {
             try {
-                failed = JSON.parse(fs.readFileSync(this.failedListPath, "utf-8"));
+                failed = JSON.parse(fs.readFileSync(this._failedListPath, "utf-8"));
             }
             catch { }
         }
         if (!failed.includes(filePath)) {
             failed.push(filePath);
-            fs.writeFileSync(this.failedListPath, JSON.stringify(failed, null, 2));
+            fs.writeFileSync(this._failedListPath, JSON.stringify(failed, null, 2));
         }
     }
-    async search(query, options) {
-        return await this.searcher.search({
-            query,
-            topK: options?.topK,
-            rerankerEnabled: options?.rerankerEnabled,
-            rerankerMinScore: options?.rerankerMinScore,
-            resultCount: options?.resultCount,
-        });
-    }
-    async ingestFile(filePath) {
-        return await this.ingester.ingestFile(filePath);
-    }
-    async removeSource(sourcePath) {
-        return await this.store.deleteBySource(sourcePath);
-    }
-    async status() {
-        const [chunkCount, sources] = await Promise.all([
-            this.store.count(),
-            this.store.listSources(),
-        ]);
-        return { chunkCount, sources };
-    }
-    async shutdown() {
-        this.watcher.stop();
-        await this.store.close();
-    }
-    get ingesterInstance() {
-        return this.ingester;
-    }
+    // -------------------------------------------------------------------------
+    // Tools
+    // -------------------------------------------------------------------------
     getTools() {
         return registerKBTools(this);
     }
@@ -199,10 +417,6 @@ export class ArkKB {
 // ============================================================================
 // Plugin entry — OpenClaw plugin registration
 // ============================================================================
-/**
- * Creates the OpenClaw plugin definition.
- * Compatible with both TypeScript source and compiled JS output.
- */
 export function createPlugin(ark) {
     return {
         id: "@njuboy11/ark-kb",
@@ -211,19 +425,11 @@ export function createPlugin(ark) {
         tools: ark.getTools().map(t => t.name),
     };
 }
-// ============================================================================
-// OpenClaw plugin entry point (CommonJS compat)
-// The actual OpenClaw loader looks for `register` or a default-exported
-// plugin definition.  We export both patterns for maximum compatibility.
-// ============================================================================
 export function register(api) {
-    // ── Config loading ──────────────────────────────────────────
-    // Priority: 1. plugin-config.json (standalone)  2. openclaw.json (fallback)
     const pluginDir = import.meta.dirname;
     const standalonePath = join(pluginDir, "plugin-config.json");
     const fileResult = loadConfigFromFile(standalonePath);
     if (fileResult.errors.length > 0) {
-        // Standalone file exists but is invalid → fail hard
         console.error("[Ark KB] Config validation FAILED in", standalonePath);
         for (const err of fileResult.errors) {
             console.error(`  - ${err}`);
@@ -237,7 +443,6 @@ export function register(api) {
         arkConfig = fileResult.config;
     }
     else {
-        // No standalone file → try to auto-create from example, then fall back to openclaw.json
         const examplePath = join(pluginDir, "plugin-config.example.json");
         if (existsSync(examplePath)) {
             console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
@@ -259,7 +464,6 @@ export function register(api) {
             fromOpenClaw = true;
         }
     }
-    // Validate fallback config when loaded from openclaw.json
     if (fromOpenClaw) {
         const fallbackErrors = validateConfig(arkConfig);
         if (fallbackErrors.length > 0) {
@@ -271,13 +475,10 @@ export function register(api) {
         }
     }
     const ark = new ArkKB(arkConfig);
-    // Register all tools
     for (const tool of ark.getTools()) {
         api.registerTool(tool);
     }
-    // Initialize in background (OpenClaw plugin API doesn't support async activate lifecycle)
     ark.init().catch((err) => console.error('[Ark KB] Background init failed:', err));
-    // Register cleanup lifecycle
     api.registerRuntimeLifecycle({
         id: "ark-kb",
         async shutdown() {
@@ -294,4 +495,6 @@ function expandPath(p) {
     }
     return p;
 }
+/** Re-export KBManager and KBInfo for consumers */
+export { KBManager } from "./kb-manager.js";
 //# sourceMappingURL=index.js.map

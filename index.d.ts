@@ -8,38 +8,60 @@ import { Embedder } from "./embedder.js";
 import { Ingester } from "./ingester.js";
 import { Searcher } from "./searcher.js";
 import { FileWatcher } from "./watcher.js";
+import { KBManager, KBInfo } from "./kb-manager.js";
 import { ArkKBConfig, ResolvedConfig } from "./config.js";
 export declare class ArkKB {
-    store: KnowledgeStore;
-    embedder: Embedder;
-    ingester: Ingester;
-    searcher: Searcher;
-    watcher: FileWatcher;
     config: ResolvedConfig;
+    /** Primary multi-KB driver */
+    kbManager: KBManager;
+    /** Embedder instance (kept for per-KB Searcher construction) */
+    embedder: Embedder;
+    /** File watcher */
+    watcher: FileWatcher;
+    /** Returns the default KB's KnowledgeStore (backward compat for tools) */
+    get store(): KnowledgeStore;
+    /** Returns a Searcher attached to the default KB store (backward compat for tools) */
+    get searcher(): Searcher;
+    /** Returns the default KB's Ingester (backward compat for tools) */
+    get ingester(): Ingester;
     private _initialized;
+    /** Searcher attached to the default KB (used when no specific kbName is given) */
+    private _defaultSearcher;
+    private _failedListPath;
     constructor(rawConfig?: ArkKBConfig);
     init(): Promise<void>;
-    private failedListPath;
-    private retryFailed;
-    private markFailed;
     search(query: string, options?: {
         topK?: number;
         rerankerEnabled?: boolean;
         rerankerMinScore?: number;
         resultCount?: number;
+        /** Target a specific KB; omit to search all KBs */
+        kbName?: string;
     }): Promise<any[]>;
-    ingestFile(filePath: string): Promise<{
-        entries: number;
-        source: string;
-        skipped: boolean;
-    }>;
-    removeSource(sourcePath: string): Promise<number>;
-    status(): Promise<{
+    /**
+     * Apply a second-stage rerank across merged multi-KB results.
+     * Falls back to returning the input if reranking fails.
+     */
+    private _globalRerank;
+    ingestFile(filePath: string): Promise<import("./kb-manager.js").IngestResult>;
+    removeSource(sourcePath: string, kbName?: string): Promise<number>;
+    status(kbName?: string): Promise<{
         chunkCount: number;
         sources: string[];
+        kbName?: string;
     }>;
+    createKB(name: string): Promise<void>;
+    deleteKB(name: string, confirm: boolean): Promise<{
+        message?: string;
+        requiresConfirm?: boolean;
+        deleted?: boolean;
+        kbName?: string;
+    }>;
+    listKBs(): Promise<KBInfo[]>;
     shutdown(): Promise<void>;
     get ingesterInstance(): Ingester;
+    private _retryFailed;
+    private _markFailed;
     getTools(): ({
         name: string;
         description: string;
@@ -54,14 +76,21 @@ export declare class ArkKB {
                     type: string;
                     description: string;
                 };
+                kb: {
+                    type: string;
+                    description: string;
+                };
                 filePath?: undefined;
                 sourcePath?: undefined;
+                name?: undefined;
+                confirm?: undefined;
             };
             required: string[];
         };
         execute(_toolCallId: string, params: {
             query: string;
             count?: number;
+            kb?: string;
         }): Promise<{
             content: {
                 type: "text";
@@ -97,7 +126,10 @@ export declare class ArkKB {
                 };
                 query?: undefined;
                 count?: undefined;
+                kb?: undefined;
                 sourcePath?: undefined;
+                name?: undefined;
+                confirm?: undefined;
             };
             required?: undefined;
         };
@@ -119,14 +151,106 @@ export declare class ArkKB {
                     type: string;
                     description: string;
                 };
+                kb: {
+                    type: string;
+                    description: string;
+                };
                 query?: undefined;
                 count?: undefined;
                 filePath?: undefined;
+                name?: undefined;
+                confirm?: undefined;
             };
             required: string[];
         };
         execute(_toolCallId: string, params: {
             sourcePath: string;
+            kb?: string;
+        }): Promise<{
+            content: {
+                type: "text";
+                text: string;
+            }[];
+        }>;
+    } | {
+        name: string;
+        description: string;
+        parameters: {
+            type: string;
+            properties: {
+                kb: {
+                    type: string;
+                    description: string;
+                };
+                query?: undefined;
+                count?: undefined;
+                filePath?: undefined;
+                sourcePath?: undefined;
+                name?: undefined;
+                confirm?: undefined;
+            };
+            required?: undefined;
+        };
+        execute(_toolCallId: string, params: {
+            kb?: string;
+        }): Promise<{
+            content: {
+                type: "text";
+                text: string;
+            }[];
+        }>;
+    } | {
+        name: string;
+        description: string;
+        parameters: {
+            type: string;
+            properties: {
+                name: {
+                    type: string;
+                    description: string;
+                };
+                query?: undefined;
+                count?: undefined;
+                kb?: undefined;
+                filePath?: undefined;
+                sourcePath?: undefined;
+                confirm?: undefined;
+            };
+            required: string[];
+        };
+        execute(_toolCallId: string, params: {
+            name: string;
+        }): Promise<{
+            content: {
+                type: "text";
+                text: string;
+            }[];
+        }>;
+    } | {
+        name: string;
+        description: string;
+        parameters: {
+            type: string;
+            properties: {
+                name: {
+                    type: string;
+                    description: string;
+                };
+                confirm: {
+                    type: string;
+                    description: string;
+                };
+                query?: undefined;
+                count?: undefined;
+                kb?: undefined;
+                filePath?: undefined;
+                sourcePath?: undefined;
+            };
+            required: string[];
+        };
+        execute(_toolCallId: string, params: {
+            name: string;
+            confirm?: boolean;
         }): Promise<{
             content: {
                 type: "text";
@@ -141,8 +265,11 @@ export declare class ArkKB {
             properties: {
                 query?: undefined;
                 count?: undefined;
+                kb?: undefined;
                 filePath?: undefined;
                 sourcePath?: undefined;
+                name?: undefined;
+                confirm?: undefined;
             };
             required?: undefined;
         };
@@ -154,10 +281,6 @@ export declare class ArkKB {
         }>;
     })[];
 }
-/**
- * Creates the OpenClaw plugin definition.
- * Compatible with both TypeScript source and compiled JS output.
- */
 export declare function createPlugin(ark: ArkKB): {
     id: string;
     name: string;
@@ -190,4 +313,7 @@ export interface WatcherConfig {
     debounceMs: number;
     ignorePatterns: string[];
 }
+/** Re-export KBManager and KBInfo for consumers */
+export { KBManager, KBInfo } from "./kb-manager.js";
+export type { KBEntry, KBSearchResult, StoreOptions } from "./kb-manager.js";
 //# sourceMappingURL=index.d.ts.map

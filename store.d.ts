@@ -20,24 +20,42 @@ export interface KBSearchResult {
     entry: KBEntry;
     score: number;
 }
-export interface StoreConfig {
+export interface StoreOptions {
     dbPath: string;
     vectorDim: number;
+    tableName?: string;
 }
 export declare class KnowledgeStore {
     private db;
     private table;
     private config;
-    constructor(config: StoreConfig);
+    private tableName;
+    constructor(config: StoreOptions);
+    /**
+     * List all table names in a LanceDB database.
+     */
+    static listTables(opts: {
+        dbPath: string;
+    }): Promise<string[]>;
     init(): Promise<void>;
     /**
-     * InsertKBEntry array in a single batch.
+     * Drop (delete) the current table from the database.
+     */
+    drop(): Promise<void>;
+    /**
+     * Return information about the current table.
+     */
+    tableInfo(): Promise<{
+        chunks: number;
+        files: string[];
+    }>;
+    /**
+     * Insert KBEntry array in a single batch.
      */
     insert(entries: KBEntry[]): Promise<void>;
     /**
-     * Vector ANN search + BM25 FTS hybrid search.
-     * Returns merged results sorted by weighted score.
-     * Note: LanceDB's FTS requires explicit field index — we query raw and sort.
+     * Vector ANN search.
+     * Returns results sorted by distance score.
      */
     search(queryVector: number[], topK: number): Promise<KBSearchResult[]>;
     /**
