@@ -66,6 +66,8 @@ async function main() {
         process.exit(1);
     }
     const resolved = resolveConfig(fileResult.config);
+    // CLI doesn't need the watcher
+    fileResult.config.watcher = { enabled: false };
     const core = new ArkKB(fileResult.config);
     await core.init();
     try {
