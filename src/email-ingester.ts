@@ -191,13 +191,13 @@ export class EmailIngester {
       return;
     }
 
-    // Determine target KB
-    let targetKB: string;
+    // Determine target KB(s)
+    let targetKBs: string[];
     try {
-      targetKB = await this.routeEmail(email.subject, email.body, email.attachments, kbNames);
+      targetKBs = await this.routeEmail(email.subject, email.body, email.attachments, kbNames);
     } catch (err: any) {
       console.error("[EmailIngester] routeEmail error:", err.message);
-      targetKB = this.kbManager.getDefaultKBName() || kbNames[0];
+      targetKBs = [this.kbManager.getDefaultKBName() || kbNames[0]];
     }
 
     // Download attachments to temp dir
@@ -223,24 +223,36 @@ export class EmailIngester {
       }
     }
 
-    // Ingest each attachment
-    for (const filePath of downloadedPaths) {
-      let retries = 0;
-      while (retries <= this.config.maxRetries) {
-        try {
-          await this.kbManager.ingestByPath(filePath);
-          this.state.totalProcessed++;
-          // Clean up temp file
-          fs.unlinkSync(filePath);
-          break;
-        } catch (err: any) {
-          retries++;
-          if (retries > this.config.maxRetries) {
-            this._recordFailure(email.messageId, `Failed to ingest ${path.basename(filePath)}: ${err.message}`);
-            // Try to clean up
-            try { fs.unlinkSync(filePath); } catch {}
-          } else {
-            await this._sleep(1000 * retries);
+    // Ingest each attachment into each matched KB
+    for (const kbName of targetKBs) {
+      const kbPath = path.join(this.knowledgePath, kbName);
+      fs.mkdirSync(kbPath, { recursive: true });
+      for (const filePath of downloadedPaths) {
+        const destPath = path.join(kbPath, path.basename(filePath));
+        // Copy file to KB folder if not already there (first KB gets the original, rest get copies)
+        const alreadyCopied = targetKBs.indexOf(kbName) > 0 && fs.existsSync(filePath);
+        const srcPath = alreadyCopied ? filePath : filePath;
+        if (kbName !== targetKBs[0] || !fs.existsSync(destPath)) {
+          fs.copyFileSync(srcPath, destPath);
+        }
+        let retries = 0;
+        while (retries <= this.config.maxRetries) {
+          try {
+            await this.kbManager.ingestByPath(destPath);
+            this.state.totalProcessed++;
+            // Clean up temp file (only after first KB ingests; copies persist)
+            if (targetKBs.indexOf(kbName) === 0) {
+              try { fs.unlinkSync(filePath); } catch {}
+            }
+            break;
+          } catch (err: any) {
+            retries++;
+            if (retries > this.config.maxRetries) {
+              this._recordFailure(email.messageId, `Failed to ingest ${path.basename(destPath)}: ${err.message}`);
+              try { fs.unlinkSync(destPath); } catch {}
+            } else {
+              await this._sleep(1000 * retries);
+            }
           }
         }
       }
@@ -250,8 +262,9 @@ export class EmailIngester {
   }
 
   /**
-   * Route an email to the appropriate KB.
-   * Stage 1: LLM analyzes subject+body to pick a KB.
+   * Route an email to the appropriate KB(s).
+   * Stage 0: Regex match KB names in subject+body.
+   * Stage 1: LLM analyzes subject+body to pick KB(s).
    * Stage 2: If stage 1 returns "none", analyze attachment content.
    */
   async routeEmail(
@@ -259,50 +272,65 @@ export class EmailIngester {
     body: string,
     attachments: AttachmentInfo[],
     kbNames: string[],
-  ): Promise<string> {
+  ): Promise<string[]> {
     if (kbNames.length === 1) {
-      return kbNames[0];
+      return kbNames;
     }
 
     const kbList = kbNames.join(", ");
 
+    // Stage 0: Regex match KB names in subject+body
+    const regexMatched: string[] = [];
+    for (const kb of kbNames) {
+      const escaped = kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(escaped, 'i');
+      if (pattern.test(subject) || pattern.test(body)) {
+        regexMatched.push(kb);
+      }
+    }
+    if (regexMatched.length > 0) {
+      console.log(`[EmailIngester] Regex matched "${subject}" → ${regexMatched.join(", ")}`);
+      return regexMatched;
+    }
+
     // Stage 1: LLM subject+body routing
     if (this.llmClient.endpoint && this.llmClient.apiKey) {
       try {
-        const systemPrompt = `你是一个知识库路由助手。当前可用知识库：${kbList}。请判断这封邮件最适合放入哪个知识库。只回复 JSON: {"kbName": "知识库名或none", "reason": "简短说明"}`;
+        const systemPrompt = `你是一个知识库路由助手。当前可用知识库：${kbList}。
+请判断这封邮件适合放入哪些知识库。如果邮件涉及多个领域，可以返回多个知识库。
+只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"] 或 ["none"], "reason": "简短说明"}`;
         const userContent = `主题：${subject}\n正文：${body}`;
         const response = await this.askLLM(systemPrompt, userContent);
         const parsed = this._parseLLMJson(response);
-        if (parsed?.kbName && parsed.kbName !== "none" && kbNames.includes(parsed.kbName)) {
-          console.log(`[EmailIngester] Stage1 routed "${subject}" → ${parsed.kbName} (${parsed.reason || ""})`);
-          return parsed.kbName;
+        const matched = (parsed?.kbNames || []).filter((n: string) => n !== "none" && kbNames.includes(n));
+        if (matched.length > 0) {
+          console.log(`[EmailIngester] Stage1 LLM routed "${subject}" → ${matched.join(", ")}`);
+          return matched;
         }
       } catch (err: any) {
         console.warn("[EmailIngester] Stage1 LLM failed:", err.message);
       }
     }
 
-    // Stage 2: Analyze attachment content
+    // Stage 2: Analyze attachment content (also supports multi-KB)
     for (const att of attachments) {
       try {
-        const routed = await this._routeAttachment(att, kbNames, kbList);
-        if (routed) {
-          return routed;
-        }
+        const matched = await this._routeAttachment(att, kbNames, kbList);
+        if (matched.length > 0) return matched;
       } catch (err: any) {
         console.warn(`[EmailIngester] Attachment ${att.filename} routing failed:`, err.message);
       }
     }
 
-    // Fallback: default KB
-    return this.kbManager.getDefaultKBName() || kbNames[0];
+    // Fallback: all default KB
+    return [this.kbManager.getDefaultKBName() || kbNames[0]];
   }
 
   private async _routeAttachment(
     att: AttachmentInfo,
     kbNames: string[],
     kbList: string,
-  ): Promise<string | null> {
+  ): Promise<string[]> {
     const ext = path.extname(att.filename).toLowerCase();
     const textExts = [".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"];
     const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"];
@@ -311,35 +339,37 @@ export class EmailIngester {
     if (textExts.includes(ext)) {
       // Stage 2a: Text/PDF content analysis
       const content = att.data.toString("utf-8").substring(0, 8000);
-      if (!this.llmClient.endpoint || !this.llmClient.apiKey) return null;
+      if (!this.llmClient.endpoint || !this.llmClient.apiKey) return [];
 
       try {
-        const systemPrompt = `当前可用知识库：${kbList}。请根据以下文档内容判断最适合放入哪个知识库。只回复 JSON: {"kbName": "知识库名", "reason": "简短说明"}`;
+        const systemPrompt = `当前可用知识库：${kbList}。请根据以下文档内容判断最适合放入哪些知识库。如果文档涉及多个领域，可以返回多个知识库。只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"], "reason": "简短说明"}`;
         const response = await this.askLLM(systemPrompt, content);
         const parsed = this._parseLLMJson(response);
-        if (parsed?.kbName && kbNames.includes(parsed.kbName)) {
-          console.log(`[EmailIngester] Stage2 text routed "${att.filename}" → ${parsed.kbName}`);
-          return parsed.kbName;
+        const matched = (parsed?.kbNames || []).filter((n: string) => kbNames.includes(n));
+        if (matched.length > 0) {
+          console.log(`[EmailIngester] Stage2 text routed "${att.filename}" → ${matched.join(", ")}`);
+          return matched;
         }
       } catch (err: any) {
         console.warn("[EmailIngester] Stage2 text LLM failed:", err.message);
       }
     } else if (imageExts.includes(ext)) {
       // Stage 2b: VLM image analysis
-      if (!this.llmClient.endpoint || !this.llmClient.apiKey) return null;
+      if (!this.llmClient.endpoint || !this.llmClient.apiKey) return [];
 
       try {
         const base64 = att.data.toString("base64");
         const mimeType = this._mimeType(ext);
         const response = await this.askVLM(
-          `当前可用知识库：${kbList}。请根据图片内容判断最适合放入哪个知识库。只回复 JSON: {"kbName": "知识库名", "reason": "简短说明"}`,
+          `当前可用知识库：${kbList}。请根据图片内容判断最适合放入哪些知识库。如果图片涉及多个领域，可以返回多个知识库。只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"], "reason": "简短说明"}`,
           base64,
           mimeType,
         );
         const parsed = this._parseLLMJson(response);
-        if (parsed?.kbName && kbNames.includes(parsed.kbName)) {
-          console.log(`[EmailIngester] Stage2 image routed "${att.filename}" → ${parsed.kbName}`);
-          return parsed.kbName;
+        const matched = (parsed?.kbNames || []).filter((n: string) => kbNames.includes(n));
+        if (matched.length > 0) {
+          console.log(`[EmailIngester] Stage2 image routed "${att.filename}" → ${matched.join(", ")}`);
+          return matched;
         }
       } catch (err: any) {
         console.warn("[EmailIngester] Stage2 image VLM failed:", err.message);
@@ -348,10 +378,10 @@ export class EmailIngester {
       // Stage 2c: Video — for now, route to default KB (full video analysis is expensive)
       // Could implement frame extraction + VLM here if needed
       console.log(`[EmailIngester] Video attachment "${att.filename}" → default KB (video analysis not yet implemented)`);
-      return this.kbManager.getDefaultKBName() || kbNames[0];
+      return [this.kbManager.getDefaultKBName() || kbNames[0]];
     }
 
-    return null;
+    return [];
   }
 
   // -------------------------------------------------------------------------
@@ -421,12 +451,17 @@ export class EmailIngester {
     return data.choices?.[0]?.message?.content ?? "";
   }
 
-  private _parseLLMJson(text: string): any {
+  private _parseLLMJson(text: string): { kbNames?: string[]; kbName?: string; reason?: string } | null {
     try {
-      // Try to extract JSON from the response
-      const match = text.match(/\{[\s\S]*\}/);
+      const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
+      const match = cleaned.match(/\{[\s\S]*\}/);
       if (match) {
-        return JSON.parse(match[0]);
+        const parsed = JSON.parse(match[0]);
+        // 兼容旧格式：单 kbName 转成数组
+        if (parsed.kbName && !parsed.kbNames) {
+          parsed.kbNames = [parsed.kbName];
+        }
+        return parsed;
       }
     } catch {}
     return null;

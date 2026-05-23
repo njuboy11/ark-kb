@@ -53,11 +53,12 @@ export declare class EmailIngester {
     scan(): Promise<void>;
     private _processEmail;
     /**
-     * Route an email to the appropriate KB.
-     * Stage 1: LLM analyzes subject+body to pick a KB.
+     * Route an email to the appropriate KB(s).
+     * Stage 0: Regex match KB names in subject+body.
+     * Stage 1: LLM analyzes subject+body to pick KB(s).
      * Stage 2: If stage 1 returns "none", analyze attachment content.
      */
-    routeEmail(subject: string, body: string, attachments: AttachmentInfo[], kbNames: string[]): Promise<string>;
+    routeEmail(subject: string, body: string, attachments: AttachmentInfo[], kbNames: string[]): Promise<string[]>;
     private _routeAttachment;
     askLLM(systemPrompt: string, userContent: string): Promise<string>;
     askVLM(systemPrompt: string, imageBase64: string, mimeType?: string): Promise<string>;
