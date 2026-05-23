@@ -120,8 +120,15 @@ function chunkBySentence(text, maxTokens, overlapTokens) {
  * Extract text from PDF using MinerU API or built-in pdf-parse.
  */
 export async function extractPdfText(filePath, pdfConfig) {
+    // Try MinerU first if configured
     if (pdfConfig.api === "mineru" && pdfConfig.endpoint) {
-        return await extractPdfMinerU(filePath, pdfConfig);
+        try {
+            return await extractPdfMinerU(filePath, pdfConfig);
+        }
+        catch (mineruErr) {
+            console.warn(`[Ark KB] MinerU failed for ${basename(filePath)}, falling back to pdf-parse: ${mineruErr.message}`);
+            // Fall through to pdf-parse
+        }
     }
     // Built-in pdf-parse fallback (v1.x loaded via createRequire for ESM compat)
     try {
@@ -133,7 +140,7 @@ export async function extractPdfText(filePath, pdfConfig) {
         return data.text || "";
     }
     catch (err) {
-        throw new Error(`PDF parsing failed for ${filePath}: both MinerU and pdf-parse are unavailable. ${err.message}`);
+        throw new Error(`PDF parsing failed for ${filePath}: both MinerU and pdf-parse failed. ${err.message}`);
     }
 }
 async function extractPdfMinerU(filePath, config) {
