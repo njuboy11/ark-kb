@@ -118,5 +118,10 @@ export interface ResolvedConfig {
     };
 }
 export declare const DEFAULTS: Omit<ResolvedConfig, "knowledgePath">;
+export declare function validateConfig(raw: unknown): string[];
+export declare function loadConfigFromFile(filePath: string): {
+    config: ArkKBConfig | null;
+    errors: string[];
+};
 export declare function resolveConfig(raw: ArkKBConfig): ResolvedConfig;
 //# sourceMappingURL=config.d.ts.map

@@ -78,18 +78,41 @@ function adaptiveSampling(duration, maxFrames) {
     return { interval, frameCount };
 }
 async function extractAndTile(filePath, outputDir, opts) {
-    // Step 1: Extract frames at adaptive interval
+    console.log(`[ark-video] Compressing to ${opts.resolution}p proxy…`);
+    const t0 = Date.now();
+    // Step 0: Compress video to low-res proxy (avoid expensive full-res decode per frame)
+    const proxyPath = join(outputDir, "proxy.mp4");
     await new Promise((resolve, reject) => {
-        // Prefer the lowest-resolution video stream >= 360p to save decode time
-        const scaleFilter = `scale=${opts.resolution}:-2`;
+        const proc = spawn("ffmpeg", [
+            "-y",
+            "-i", filePath,
+            "-vf", `scale=${opts.resolution}:-2`,
+            "-preset", "ultrafast",
+            "-crf", "30",
+            "-an", // No audio
+            "-tune", "fastdecode",
+            proxyPath,
+        ], { stdio: ["ignore", "pipe", "pipe"] });
+        let stderr = "";
+        proc.stderr.on("data", (d) => { stderr += d.toString(); });
+        proc.on("close", (code) => {
+            if (code === 0)
+                resolve();
+            else
+                reject(new Error(`compress exit ${code}: ${stderr.slice(-200)}`));
+        });
+        proc.on("error", reject);
+    });
+    console.log(`[ark-video] Proxy done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    // Step 1: Extract frames from proxy (no scale filter needed, already 360p)
+    const t1 = Date.now();
+    await new Promise((resolve, reject) => {
         const frameFilter = `fps=1/${opts.interval}`;
         const proc = spawn("ffmpeg", [
             "-y",
-            "-skip_scale", "1", // Keep original pix_fmt to avoid conversion overhead
-            "-i", filePath,
-            "-an", // Skip audio processing
-            "-map", "0:v:0?", // Use first video stream
-            "-vf", `${scaleFilter},${frameFilter}`,
+            "-i", proxyPath,
+            "-an",
+            "-vf", frameFilter,
             "-q:v", "50",
             join(outputDir, "frame_%04d.jpg"),
         ], { stdio: ["ignore", "pipe", "pipe"] });
@@ -99,10 +122,11 @@ async function extractAndTile(filePath, outputDir, opts) {
             if (code === 0)
                 resolve();
             else
-                reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-200)}`));
+                reject(new Error(`frame extract exit ${code}: ${stderr.slice(-200)}`));
         });
         proc.on("error", reject);
     });
+    console.log(`[ark-video] ${opts.frameCount} frames in ${((Date.now() - t1) / 1000).toFixed(1)}s`);
     // Step 2: Tile all frames into grid
     const cols = Math.min(opts.maxColumns, Math.ceil(Math.sqrt(opts.frameCount)));
     const gridPath = join(outputDir, "grid.jpg");

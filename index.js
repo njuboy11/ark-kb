@@ -3,7 +3,7 @@
  * Wires together all components with nested config support.
  * Exports definePluginEntry-compatible register function for OpenClaw.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { KnowledgeStore } from "./store.js";
@@ -11,7 +11,7 @@ import { Embedder } from "./embedder.js";
 import { Ingester } from "./ingester.js";
 import { Searcher } from "./searcher.js";
 import { FileWatcher } from "./watcher.js";
-import { resolveConfig, } from "./config.js";
+import { resolveConfig, loadConfigFromFile, validateConfig, } from "./config.js";
 import { registerKBTools } from "./tools.js";
 // ============================================================================
 // ArkKB — Core class (used both by the plugin and for direct Node.js usage)
@@ -205,8 +205,60 @@ export function createPlugin(ark) {
 // plugin definition.  We export both patterns for maximum compatibility.
 // ============================================================================
 export function register(api) {
-    const pluginConfig = (api.pluginConfig ?? api.config ?? {});
-    const ark = new ArkKB(pluginConfig);
+    // ── Config loading ──────────────────────────────────────────
+    // Priority: 1. plugin-config.json (standalone)  2. openclaw.json (fallback)
+    const pluginDir = import.meta.dirname;
+    const standalonePath = join(pluginDir, "plugin-config.json");
+    const fileResult = loadConfigFromFile(standalonePath);
+    if (fileResult.errors.length > 0) {
+        // Standalone file exists but is invalid → fail hard
+        console.error("[Ark KB] Config validation FAILED in", standalonePath);
+        for (const err of fileResult.errors) {
+            console.error(`  - ${err}`);
+        }
+        throw new Error(`[Ark KB] Configuration error in ${standalonePath}: ${fileResult.errors.join("; ")}`);
+    }
+    let arkConfig;
+    let fromOpenClaw = false;
+    if (fileResult.config) {
+        console.log("[Ark KB] Loading config from standalone file:", standalonePath);
+        arkConfig = fileResult.config;
+    }
+    else {
+        // No standalone file → try to auto-create from example, then fall back to openclaw.json
+        const examplePath = join(pluginDir, "plugin-config.example.json");
+        if (existsSync(examplePath)) {
+            console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
+            copyFileSync(examplePath, standalonePath);
+            console.log("[Ark KB] Created", standalonePath, "— edit this file to configure.");
+            const retry = loadConfigFromFile(standalonePath);
+            if (retry.config) {
+                arkConfig = retry.config;
+            }
+            else {
+                console.log("[Ark KB] Falling back to openclaw.json");
+                arkConfig = (api.pluginConfig ?? api.config ?? {});
+                fromOpenClaw = true;
+            }
+        }
+        else {
+            console.log("[Ark KB] No config files found, falling back to openclaw.json");
+            arkConfig = (api.pluginConfig ?? api.config ?? {});
+            fromOpenClaw = true;
+        }
+    }
+    // Validate fallback config when loaded from openclaw.json
+    if (fromOpenClaw) {
+        const fallbackErrors = validateConfig(arkConfig);
+        if (fallbackErrors.length > 0) {
+            console.error("[Ark KB] Config validation FAILED (openclaw.json):");
+            for (const err of fallbackErrors) {
+                console.error(`  - ${err}`);
+            }
+            throw new Error(`[Ark KB] Configuration error in openclaw.json: ${fallbackErrors.join("; ")}`);
+        }
+    }
+    const ark = new ArkKB(arkConfig);
     // Register all tools
     for (const tool of ark.getTools()) {
         api.registerTool(tool);
