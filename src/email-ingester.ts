@@ -598,6 +598,9 @@ export class EmailIngester {
         const { simpleParser } = await import("mailparser");
         const parsed = await simpleParser(msg.source);
         for (const att of parsed.attachments || []) {
+          // Skip inline images (email signatures, embeds) — only real attachments
+          const disposition = (att as any).contentDisposition ?? "attachment";
+          if (disposition === "inline") continue;
           const filename = att.filename ?? `attachment_${attachments.length}`;
           const mimeType = att.contentType ?? "application/octet-stream";
           const data = att.content instanceof Buffer ? att.content : Buffer.from(att.content || "");
