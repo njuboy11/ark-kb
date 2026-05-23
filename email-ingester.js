@@ -130,7 +130,7 @@ export class EmailIngester {
                 const matches = Array.isArray(seqNums) ? seqNums : [];
                 console.log(`[EmailIngester] search criteria:`, JSON.stringify(criteria), `→ ${matches.length} matches`);
                 let count = 0;
-                let maxSeenInternalDate = sinceTime;
+                let maxProcessedInternalDate = sinceTime;
                 for (const seq of matches) {
                     if (seq > 1000)
                         break;
@@ -154,31 +154,30 @@ export class EmailIngester {
                         console.log(`[EmailIngester] Skipping UID ${email.uid} — permanently failed`);
                         continue;
                     }
-                    // Skip emails without attachments
-                    if (email.attachments.length === 0) {
-                        // Track the internal date but don't process
-                        if (email.internalDate > maxSeenInternalDate) {
-                            maxSeenInternalDate = email.internalDate;
-                        }
+                    // Skip emails without attachments (no-op, don't bump timestamp)
+                    if (email.attachments.length === 0)
                         continue;
-                    }
                     try {
                         await this._processEmail(email);
-                        // Success — remove from failed list if present
+                        // Success — remove from failed list, track processed time
                         this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+                        if (email.internalDate > maxProcessedInternalDate) {
+                            maxProcessedInternalDate = email.internalDate;
+                        }
                         count++;
                     }
                     catch (err) {
                         console.error(`[EmailIngester] Failed to process UID ${email.uid}:`, err.message);
                         this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
-                    }
-                    // Track latest internal date
-                    if (email.internalDate > maxSeenInternalDate) {
-                        maxSeenInternalDate = email.internalDate;
+                        // DO NOT advance timestamp — failed emails will be retried next scan
                     }
                 }
-                // Update lastProcessedTime to the latest internal date seen
-                this.state.lastProcessedTime = maxSeenInternalDate;
+                // Only advance lastProcessedTime for SUCCESSFULLY processed emails.
+                // Failed emails stay behind the cursor → retried next scan.
+                if (count > 0) {
+                    this.state.lastProcessedTime = maxProcessedInternalDate;
+                }
+                // If nothing was processed → keep old timestamp → all emails retried
                 this.state.lastScan = Date.now();
                 if (count > 0) {
                     console.log(`[EmailIngester] Processed ${count} email(s) with attachments`);
