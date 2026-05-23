@@ -373,6 +373,7 @@ async function processImage(
 
   // Text mode: VLM summary → text embedding
   if (mode === "text" && opts?.imageConfig?.apiKey) {
+    console.log(`[Ark KB] Image text mode: summarizing ${base} via VLM…`);
     try {
       const summary = await summarizeImage(filePath, {
         apiKey: opts.imageConfig.apiKey,
@@ -402,6 +403,7 @@ async function processImage(
   }
 
   // Multimodal mode (or fallback): direct multimodal embedding
+  console.log(`[Ark KB] Image mm/fallback mode: embedding ${base} directly`);
   const mediaData = await exposeMediaFile(dirname(filePath), basename(filePath));
   const vectors = await embedder.embed([mediaData || basename(filePath)]);
 

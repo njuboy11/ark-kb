@@ -255,10 +255,11 @@ export class Searcher {
     const textResults = results.filter(r => !isMedia(r));
     const mediaResults = results.filter(r => isMedia(r));
 
-    // Rerank text results with text model
+    console.log(`[Ark KB] Reranker routing: ${textResults.length} text + ${mediaResults.length} media (img=${imageIsText ? "text" : "mm"}, vid=${videoIsText ? "text" : "mm"})`);
     let reranked: KBSearchResult[] = [];
     if (textResults.length > 0 && rc.apiKey) {
       const textMinScore = resolveRerankerMinScore(rc.api, rc.model, rc.minScore);
+      console.log(`[Ark KB] Rerank text: ${textResults.length} results → model=${rc.model}`);
       reranked = await this.callReranker(textResults, query, textMinScore, rc.api, rc.model, rc.apiKey, rc.endpoint);
     } else {
       reranked = textResults;
@@ -269,10 +270,12 @@ export class Searcher {
     if (mediaResults.length > 0 && mmCfg?.apiKey) {
       const mmApi = this.detectRerankerApi(mmCfg.endpoint ?? rc.endpoint, mmCfg.apiKey);
       const mmMinScore = resolveRerankerMinScore(mmApi, mmCfg.model ?? "", mmCfg.model ? undefined : rc.minScore);
+      console.log(`[Ark KB] Rerank mm: ${mediaResults.length} results → model=${mmCfg.model}`);
       const mmReranked = await this.callReranker(mediaResults, query, mmMinScore, mmApi, mmCfg.model ?? "", mmCfg.apiKey, mmCfg.endpoint ?? rc.endpoint);
       reranked.push(...mmReranked);
     } else {
       // No multimodal reranker configured — keep vector scores for media
+      console.log(`[Ark KB] Rerank mm: ${mediaResults.length} results → skipped (no mm reranker), keeping vector scores`);
       reranked.push(...mediaResults);
     }
 
