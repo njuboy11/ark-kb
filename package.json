@@ -30,7 +30,8 @@
   },
   "homepage": "https://github.com/njuboy11/ark-kb#readme",
   "dependencies": {
-    "@lancedb/lancedb": "^0.26.2"
+    "@lancedb/lancedb": "^0.26.2",
+    "imapflow": "^1.3.3"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

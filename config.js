@@ -60,6 +60,16 @@ export const DEFAULTS = {
         endpoint: "https://api.minimaxi.com/v1/coding_plan/vlm",
         apiKey: "",
     },
+    emailIngester: {
+        enabled: false,
+        host: "imap.163.com",
+        port: 993,
+        tls: true,
+        user: "",
+        password: "",
+        scanIntervalMs: 600000,
+        maxRetries: 2,
+    },
 };
 // ============================================================================
 // Auto-detect API protocol from endpoint URL
@@ -106,7 +116,7 @@ export function validateConfig(raw) {
     if (c.knowledgePath !== undefined && typeof c.knowledgePath !== "string") {
         errors.push("knowledgePath must be a string");
     }
-    for (const section of ["storage", "embedding", "reranker", "pdfParser", "search", "chunking", "watcher", "videoSummarizer", "imageSummarizer"]) {
+    for (const section of ["storage", "embedding", "reranker", "pdfParser", "search", "chunking", "watcher", "videoSummarizer", "imageSummarizer", "emailIngester"]) {
         if (c[section] !== undefined && (typeof c[section] !== "object" || c[section] === null)) {
             errors.push(`${section} must be an object`);
         }
@@ -196,6 +206,42 @@ export function validateConfig(raw) {
         }
         if (w.debounceMs !== undefined && typeof w.debounceMs !== "number") {
             errors.push("watcher.debounceMs must be a number");
+        }
+    }
+    if (c.emailIngester) {
+        const em = c.emailIngester;
+        if (em.enabled !== undefined && typeof em.enabled !== "boolean") {
+            errors.push("emailIngester.enabled must be a boolean");
+        }
+        if (em.host !== undefined && typeof em.host !== "string") {
+            errors.push("emailIngester.host must be a string");
+        }
+        if (em.port !== undefined && typeof em.port !== "number") {
+            errors.push("emailIngester.port must be a number");
+        }
+        if (em.tls !== undefined && typeof em.tls !== "boolean") {
+            errors.push("emailIngester.tls must be a boolean");
+        }
+        if (em.user !== undefined && typeof em.user !== "string") {
+            errors.push("emailIngester.user must be a string");
+        }
+        if (em.password !== undefined && typeof em.password !== "string") {
+            errors.push("emailIngester.password must be a string");
+        }
+        if (em.scanIntervalMs !== undefined && typeof em.scanIntervalMs !== "number") {
+            errors.push("emailIngester.scanIntervalMs must be a number");
+        }
+        if (em.maxRetries !== undefined && typeof em.maxRetries !== "number") {
+            errors.push("emailIngester.maxRetries must be a number");
+        }
+        // Cross-field: enabled=true requires host, user, password
+        if (em.enabled === true) {
+            if (!em.host)
+                errors.push("emailIngester.host is required when emailIngester.enabled is true");
+            if (!em.user)
+                errors.push("emailIngester.user is required when emailIngester.enabled is true");
+            if (!em.password)
+                errors.push("emailIngester.password is required when emailIngester.enabled is true");
         }
     }
     // ── Cross-field validation ────────────────────────────────
@@ -352,6 +398,16 @@ export function resolveConfig(raw) {
             enabled: raw.imageSummarizer?.enabled ?? raw.videoSummarizer?.enabled ?? DEFAULTS.imageSummarizer.enabled,
             endpoint: raw.imageSummarizer?.endpoint ?? raw.videoSummarizer?.endpoint ?? DEFAULTS.imageSummarizer.endpoint,
             apiKey: raw.imageSummarizer?.apiKey ?? raw.videoSummarizer?.apiKey ?? DEFAULTS.imageSummarizer.apiKey,
+        },
+        emailIngester: {
+            enabled: raw.emailIngester?.enabled ?? DEFAULTS.emailIngester.enabled,
+            host: raw.emailIngester?.host ?? DEFAULTS.emailIngester.host,
+            port: raw.emailIngester?.port ?? DEFAULTS.emailIngester.port,
+            tls: raw.emailIngester?.tls ?? DEFAULTS.emailIngester.tls,
+            user: raw.emailIngester?.user ?? DEFAULTS.emailIngester.user,
+            password: raw.emailIngester?.password ?? DEFAULTS.emailIngester.password,
+            scanIntervalMs: raw.emailIngester?.scanIntervalMs ?? DEFAULTS.emailIngester.scanIntervalMs,
+            maxRetries: raw.emailIngester?.maxRetries ?? DEFAULTS.emailIngester.maxRetries,
         },
     };
 }

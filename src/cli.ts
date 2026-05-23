@@ -165,6 +165,8 @@ async function main(): Promise<void> {
         console.log(`DB:     ${resolved.storage.dbPath}`);
         console.log(`Emb:    ${resolved.embedding.model} (${resolved.embedding.dimensions}d)`);
         console.log(`Method: img=${resolved.embedding.method.image} vid=${resolved.embedding.method.video}`);
+        const emailEnabled = resolved.emailIngester?.enabled;
+        console.log(`Email:  ${emailEnabled ? `enabled (${resolved.emailIngester.host})` : "disabled"}`);
         break;
       }
 

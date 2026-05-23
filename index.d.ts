@@ -18,6 +18,8 @@ export declare class ArkKB {
     embedder: Embedder;
     /** File watcher */
     watcher: FileWatcher;
+    /** Email auto-ingester (null when disabled) */
+    private emailIngester;
     /** Returns the default KB's KnowledgeStore (backward compat for tools) */
     get store(): KnowledgeStore;
     /** Returns a Searcher attached to the default KB store (backward compat for tools) */
@@ -29,7 +31,7 @@ export declare class ArkKB {
     private _defaultSearcher;
     private _failedListPath;
     constructor(rawConfig?: ArkKBConfig);
-    init(): Promise<void>;
+    init(api?: any): Promise<void>;
     search(query: string, options?: {
         topK?: number;
         rerankerEnabled?: boolean;
@@ -60,6 +62,13 @@ export declare class ArkKB {
     listKBs(): Promise<KBInfo[]>;
     shutdown(): Promise<void>;
     get ingesterInstance(): Ingester;
+    /**
+     * Get the user\'s LLM config from the OpenClaw plugin API or openclaw.json.
+     * Used by EmailIngester for KB routing decisions.
+     */
+    /** Auto-detect LLM from openclaw.json. Priority: defaultModel → first text model with apiKey (top-down). */
+    private getUserLLM;
+    private _initEmailIngester;
     private _retryFailed;
     private _markFailed;
     getTools(): ({

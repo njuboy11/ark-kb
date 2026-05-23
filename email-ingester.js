@@ -1,0 +1,500 @@
+/**
+ * Ark KB — Email Ingester
+ * Monitors an IMAP mailbox and auto-ingests email attachments into knowledge bases.
+ */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { homedir } from "node:os";
+// ============================================================================
+// EmailIngester
+// ============================================================================
+export class EmailIngester {
+    config;
+    kbManager;
+    knowledgePath;
+    llmClient;
+    emailStatePath;
+    state;
+    scanTimer = null;
+    imapClient = null;
+    ImapFlow = null;
+    constructor(opts) {
+        this.config = opts.config;
+        this.kbManager = opts.kbManager;
+        this.knowledgePath = opts.knowledgePath;
+        this.llmClient = opts.llmClient;
+        // State file alongside LanceDB (dbPath parent)
+        this.emailStatePath = path.join(homedir(), ".ark-kb", "email-state.json");
+        this.state = { lastUid: 0, lastScan: 0, totalProcessed: 0, failed: [] };
+    }
+    // -------------------------------------------------------------------------
+    // Init
+    // -------------------------------------------------------------------------
+    async init() {
+        if (!this.config.enabled) {
+            console.log("[EmailIngester] Disabled — skipping");
+            return;
+        }
+        // Check LLM availability
+        if (!this.llmClient.endpoint || !this.llmClient.apiKey) {
+            console.log("[EmailIngester] LLM not configured — email routing (KB selection) will be skipped");
+        }
+        // Load state
+        this._loadState();
+        // Ensure tmp directory
+        const tmpDir = path.join(homedir(), ".ark-kb", "tmp-email");
+        fs.mkdirSync(tmpDir, { recursive: true });
+        // Dynamic import of imapflow
+        try {
+            const { ImapFlow } = await import("imapflow");
+            this.ImapFlow = ImapFlow;
+        }
+        catch (err) {
+            console.error("[EmailIngester] Failed to import imapflow. Run: npm install imapflow");
+            return;
+        }
+        // Connect
+        await this._connect();
+        // Start scanning
+        this.scanTimer = setInterval(() => {
+            this.scan().catch(err => console.error("[EmailIngester] Scan error:", err.message));
+        }, this.config.scanIntervalMs);
+        console.log(`[EmailIngester] Started — scanning ${this.config.host} every ${this.config.scanIntervalMs}ms`);
+    }
+    // -------------------------------------------------------------------------
+    // Scan emails
+    // -------------------------------------------------------------------------
+    async scan() {
+        if (!this.imapClient) {
+            try {
+                await this._connect();
+            }
+            catch (err) {
+                console.error("[EmailIngester] IMAP connect failed:", err.message);
+                return;
+            }
+        }
+        try {
+            const lock = await this.imapClient.getMailboxLock("INBOX");
+            try {
+                // Search for messages with UID > lastUid
+                const query = {};
+                if (this.state.lastUid > 0) {
+                    query.uid = { $gt: this.state.lastUid };
+                }
+                const messages = this.imapClient.scan({
+                    path: "INBOX",
+                    query,
+                    maxMessages: 100,
+                });
+                let count = 0;
+                for await (const msg of messages) {
+                    const email = await this._parseEmail(msg);
+                    if (email.attachments.length === 0) {
+                        // Update lastUid even for non-attachment emails
+                        if (msg.uid > this.state.lastUid) {
+                            this.state.lastUid = msg.uid;
+                        }
+                        continue;
+                    }
+                    await this._processEmail(email);
+                    if (msg.uid > this.state.lastUid) {
+                        this.state.lastUid = msg.uid;
+                    }
+                    count++;
+                }
+                this.state.lastScan = Date.now();
+                if (count > 0) {
+                    console.log(`[EmailIngester] Processed ${count} email(s) with attachments`);
+                }
+                this._saveState();
+            }
+            finally {
+                lock.release();
+            }
+        }
+        catch (err) {
+            console.error("[EmailIngester] Scan error:", err.message);
+        }
+    }
+    // -------------------------------------------------------------------------
+    // Process a single email
+    // -------------------------------------------------------------------------
+    async _processEmail(email) {
+        const kbNames = this.kbManager.getAllKBNames();
+        if (kbNames.length === 0) {
+            console.warn("[EmailIngester] No KBs available — skipping email:", email.subject);
+            return;
+        }
+        // Determine target KB
+        let targetKB;
+        try {
+            targetKB = await this.routeEmail(email.subject, email.body, email.attachments, kbNames);
+        }
+        catch (err) {
+            console.error("[EmailIngester] routeEmail error:", err.message);
+            targetKB = this.kbManager.getDefaultKBName() || kbNames[0];
+        }
+        // Download attachments to temp dir
+        const tmpDir = path.join(homedir(), ".ark-kb", "tmp-email");
+        const downloadedPaths = [];
+        for (const att of email.attachments) {
+            let retries = 0;
+            while (retries <= this.config.maxRetries) {
+                try {
+                    const filePath = path.join(tmpDir, att.filename);
+                    fs.writeFileSync(filePath, att.data);
+                    downloadedPaths.push(filePath);
+                    break;
+                }
+                catch (err) {
+                    retries++;
+                    if (retries > this.config.maxRetries) {
+                        this._recordFailure(email.messageId, `Failed to write attachment ${att.filename}: ${err.message}`);
+                    }
+                    else {
+                        await this._sleep(1000 * retries);
+                    }
+                }
+            }
+        }
+        // Ingest each attachment
+        for (const filePath of downloadedPaths) {
+            let retries = 0;
+            while (retries <= this.config.maxRetries) {
+                try {
+                    await this.kbManager.ingestByPath(filePath);
+                    this.state.totalProcessed++;
+                    // Clean up temp file
+                    fs.unlinkSync(filePath);
+                    break;
+                }
+                catch (err) {
+                    retries++;
+                    if (retries > this.config.maxRetries) {
+                        this._recordFailure(email.messageId, `Failed to ingest ${path.basename(filePath)}: ${err.message}`);
+                        // Try to clean up
+                        try {
+                            fs.unlinkSync(filePath);
+                        }
+                        catch { }
+                    }
+                    else {
+                        await this._sleep(1000 * retries);
+                    }
+                }
+            }
+        }
+        this._saveState();
+    }
+    /**
+     * Route an email to the appropriate KB.
+     * Stage 1: LLM analyzes subject+body to pick a KB.
+     * Stage 2: If stage 1 returns "none", analyze attachment content.
+     */
+    async routeEmail(subject, body, attachments, kbNames) {
+        if (kbNames.length === 1) {
+            return kbNames[0];
+        }
+        const kbList = kbNames.join(", ");
+        // Stage 1: LLM subject+body routing
+        if (this.llmClient.endpoint && this.llmClient.apiKey) {
+            try {
+                const systemPrompt = `你是一个知识库路由助手。当前可用知识库：${kbList}。请判断这封邮件最适合放入哪个知识库。只回复 JSON: {"kbName": "知识库名或none", "reason": "简短说明"}`;
+                const userContent = `主题：${subject}\n正文：${body}`;
+                const response = await this.askLLM(systemPrompt, userContent);
+                const parsed = this._parseLLMJson(response);
+                if (parsed?.kbName && parsed.kbName !== "none" && kbNames.includes(parsed.kbName)) {
+                    console.log(`[EmailIngester] Stage1 routed "${subject}" → ${parsed.kbName} (${parsed.reason || ""})`);
+                    return parsed.kbName;
+                }
+            }
+            catch (err) {
+                console.warn("[EmailIngester] Stage1 LLM failed:", err.message);
+            }
+        }
+        // Stage 2: Analyze attachment content
+        for (const att of attachments) {
+            try {
+                const routed = await this._routeAttachment(att, kbNames, kbList);
+                if (routed) {
+                    return routed;
+                }
+            }
+            catch (err) {
+                console.warn(`[EmailIngester] Attachment ${att.filename} routing failed:`, err.message);
+            }
+        }
+        // Fallback: default KB
+        return this.kbManager.getDefaultKBName() || kbNames[0];
+    }
+    async _routeAttachment(att, kbNames, kbList) {
+        const ext = path.extname(att.filename).toLowerCase();
+        const textExts = [".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"];
+        const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"];
+        const videoExts = [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"];
+        if (textExts.includes(ext)) {
+            // Stage 2a: Text/PDF content analysis
+            const content = att.data.toString("utf-8").substring(0, 8000);
+            if (!this.llmClient.endpoint || !this.llmClient.apiKey)
+                return null;
+            try {
+                const systemPrompt = `当前可用知识库：${kbList}。请根据以下文档内容判断最适合放入哪个知识库。只回复 JSON: {"kbName": "知识库名", "reason": "简短说明"}`;
+                const response = await this.askLLM(systemPrompt, content);
+                const parsed = this._parseLLMJson(response);
+                if (parsed?.kbName && kbNames.includes(parsed.kbName)) {
+                    console.log(`[EmailIngester] Stage2 text routed "${att.filename}" → ${parsed.kbName}`);
+                    return parsed.kbName;
+                }
+            }
+            catch (err) {
+                console.warn("[EmailIngester] Stage2 text LLM failed:", err.message);
+            }
+        }
+        else if (imageExts.includes(ext)) {
+            // Stage 2b: VLM image analysis
+            if (!this.llmClient.endpoint || !this.llmClient.apiKey)
+                return null;
+            try {
+                const base64 = att.data.toString("base64");
+                const mimeType = this._mimeType(ext);
+                const response = await this.askVLM(`当前可用知识库：${kbList}。请根据图片内容判断最适合放入哪个知识库。只回复 JSON: {"kbName": "知识库名", "reason": "简短说明"}`, base64, mimeType);
+                const parsed = this._parseLLMJson(response);
+                if (parsed?.kbName && kbNames.includes(parsed.kbName)) {
+                    console.log(`[EmailIngester] Stage2 image routed "${att.filename}" → ${parsed.kbName}`);
+                    return parsed.kbName;
+                }
+            }
+            catch (err) {
+                console.warn("[EmailIngester] Stage2 image VLM failed:", err.message);
+            }
+        }
+        else if (videoExts.includes(ext)) {
+            // Stage 2c: Video — for now, route to default KB (full video analysis is expensive)
+            // Could implement frame extraction + VLM here if needed
+            console.log(`[EmailIngester] Video attachment "${att.filename}" → default KB (video analysis not yet implemented)`);
+            return this.kbManager.getDefaultKBName() || kbNames[0];
+        }
+        return null;
+    }
+    // -------------------------------------------------------------------------
+    // LLM / VLM helpers
+    // -------------------------------------------------------------------------
+    async askLLM(systemPrompt, userContent) {
+        const { endpoint, apiKey, model } = this.llmClient;
+        const response = await fetch(`${endpoint}/chat/completions`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userContent },
+                ],
+                max_tokens: 512,
+                temperature: 0.1,
+            }),
+        });
+        if (!response.ok) {
+            throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
+        }
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content ?? "";
+    }
+    async askVLM(systemPrompt, imageBase64, mimeType = "image/jpeg") {
+        const { endpoint, apiKey, model } = this.llmClient;
+        const dataUrl = `data:${mimeType};base64,${imageBase64}`;
+        const body = {
+            model,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: systemPrompt },
+                        { type: "image_url", image_url: { url: dataUrl } },
+                    ],
+                },
+            ],
+            max_tokens: 512,
+            temperature: 0.1,
+        };
+        const response = await fetch(`${endpoint}/chat/completions`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+            throw new Error(`VLM HTTP ${response.status}: ${await response.text()}`);
+        }
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content ?? "";
+    }
+    _parseLLMJson(text) {
+        try {
+            // Try to extract JSON from the response
+            const match = text.match(/\{[\s\S]*\}/);
+            if (match) {
+                return JSON.parse(match[0]);
+            }
+        }
+        catch { }
+        return null;
+    }
+    // -------------------------------------------------------------------------
+    // IMAP helpers
+    // -------------------------------------------------------------------------
+    async _connect() {
+        if (this.ImapFlow === null) {
+            throw new Error("imapflow not loaded");
+        }
+        this.imapClient = new this.ImapFlow({
+            host: this.config.host,
+            port: this.config.port,
+            tls: this.config.tls,
+            auth: {
+                user: this.config.user,
+                pass: this.config.password,
+            },
+            logger: {
+                debug: () => { },
+                info: () => { },
+                warn: (msg) => console.warn(`[IMAP] ${msg}`),
+                error: (msg) => console.error(`[IMAP] ${msg}`),
+            },
+        });
+        await this.imapClient.connect();
+        console.log(`[EmailIngester] Connected to ${this.config.host}`);
+    }
+    async _parseEmail(msg) {
+        const envelope = msg.envelope ?? {};
+        const subject = envelope.subject ?? "(no subject)";
+        const messageId = envelope.messageId ?? String(msg.uid);
+        // Get text body
+        let body = "";
+        try {
+            const text = await msg.text();
+            body = text ?? "";
+        }
+        catch {
+            body = "";
+        }
+        // Get attachments
+        const attachments = [];
+        try {
+            if (msg.hasAttachments || (envelope.headers && Object.keys(envelope.headers).length > 0)) {
+                // Fetch full message to access attachments
+                const full = await msg.fullJson();
+                if (full?.body?.attachments) {
+                    for (const att of full.body.attachments) {
+                        const filename = att.filename ?? `attachment_${attachments.length}`;
+                        const mimeType = att.contentType ?? "application/octet-stream";
+                        const data = Buffer.from(att.content ?? "", "base64");
+                        if (data.length > 0) {
+                            attachments.push({ filename, mimeType, data });
+                        }
+                    }
+                }
+            }
+        }
+        catch (err) {
+            console.warn(`[EmailIngester] Failed to parse attachments for UID ${msg.uid}:`, err.message);
+        }
+        return { messageId, subject, body, attachments };
+    }
+    // -------------------------------------------------------------------------
+    // State management
+    // -------------------------------------------------------------------------
+    _loadState() {
+        try {
+            if (fs.existsSync(this.emailStatePath)) {
+                const raw = fs.readFileSync(this.emailStatePath, "utf-8");
+                const loaded = JSON.parse(raw);
+                this.state = {
+                    lastUid: loaded.lastUid ?? 0,
+                    lastScan: loaded.lastScan ?? 0,
+                    totalProcessed: loaded.totalProcessed ?? 0,
+                    failed: loaded.failed ?? [],
+                };
+            }
+        }
+        catch (err) {
+            console.warn("[EmailIngester] Failed to load state:", err.message);
+        }
+    }
+    _saveState() {
+        try {
+            const dir = path.dirname(this.emailStatePath);
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(this.emailStatePath, JSON.stringify(this.state, null, 2));
+        }
+        catch (err) {
+            console.error("[EmailIngester] Failed to save state:", err.message);
+        }
+    }
+    _recordFailure(messageId, error) {
+        const existing = this.state.failed.findIndex(f => f.messageId === messageId);
+        if (existing >= 0) {
+            this.state.failed[existing].retries++;
+            this.state.failed[existing].error = error;
+            this.state.failed[existing].timestamp = Date.now();
+        }
+        else {
+            this.state.failed.push({
+                messageId,
+                error,
+                retries: 1,
+                timestamp: Date.now(),
+            });
+        }
+        // Keep only last 100 failures
+        if (this.state.failed.length > 100) {
+            this.state.failed = this.state.failed.slice(-100);
+        }
+        this._saveState();
+    }
+    // -------------------------------------------------------------------------
+    // Shutdown
+    // -------------------------------------------------------------------------
+    async shutdown() {
+        if (this.scanTimer) {
+            clearInterval(this.scanTimer);
+            this.scanTimer = null;
+        }
+        if (this.imapClient) {
+            try {
+                await this.imapClient.logout();
+            }
+            catch { }
+            this.imapClient = null;
+        }
+        console.log("[EmailIngester] Shutdown complete");
+    }
+    // -------------------------------------------------------------------------
+    // Utilities
+    // -------------------------------------------------------------------------
+    _sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    _mimeType(ext) {
+        const map = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
+        };
+        return map[ext] ?? "application/octet-stream";
+    }
+    /** Get current state for status reporting */
+    getState() {
+        return { ...this.state };
+    }
+}
+//# sourceMappingURL=email-ingester.js.map

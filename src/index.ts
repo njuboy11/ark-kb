@@ -4,7 +4,7 @@
  * Exports definePluginEntry-compatible register function for OpenClaw.
  */
 
-import { existsSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { KnowledgeStore } from "./store.js";
@@ -13,6 +13,7 @@ import { Ingester } from "./ingester.js";
 import { Searcher } from "./searcher.js";
 import { FileWatcher } from "./watcher.js";
 import { KBManager, KBInfo } from "./kb-manager.js";
+import { EmailIngester } from "./email-ingester.js";
 import {
   ArkKBConfig,
   ResolvedConfig,
@@ -37,6 +38,9 @@ export class ArkKB {
 
   /** File watcher */
   public watcher: FileWatcher;
+
+  /** Email auto-ingester (null when disabled) */
+  private emailIngester: EmailIngester | null = null;
 
   // -------------------------------------------------------------------------
   // Backward-compatible aliases (tools depend on these properties)
@@ -140,13 +144,15 @@ export class ArkKB {
       debounceMs: this.config.watcher.debounceMs,
       ignorePatterns: this.config.watcher.ignorePatterns,
     });
+
+    // emailIngester is initialized in init() after LLM config is resolved
   }
 
   // -------------------------------------------------------------------------
   // Init
   // -------------------------------------------------------------------------
 
-  async init(): Promise<void> {
+  async init(api?: any): Promise<void> {
     if (this._initialized) return;
 
     // KBManager.init() handles auto-migration + scanning + store init
@@ -210,6 +216,9 @@ export class ArkKB {
         }
       });
     }
+
+    // Initialize email auto-ingester (api param only used in plugin mode)
+    await this._initEmailIngester(api);
 
     this._initialized = true;
     console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
@@ -431,6 +440,10 @@ export class ArkKB {
 
   async shutdown(): Promise<void> {
     this.watcher.stop();
+    if (this.emailIngester) {
+      await this.emailIngester.shutdown();
+      this.emailIngester = null;
+    }
     await this.kbManager.close();
   }
 
@@ -440,6 +453,70 @@ export class ArkKB {
 
   get ingesterInstance(): Ingester {
     return this.ingester;
+  }
+
+  /**
+   * Get the user\'s LLM config from the OpenClaw plugin API or openclaw.json.
+   * Used by EmailIngester for KB routing decisions.
+   */
+  /** Auto-detect LLM from openclaw.json. Priority: defaultModel → first text model with apiKey (top-down). */
+  private getUserLLM(): { endpoint: string; apiKey: string; model: string } {
+    const openclawPath = join(homedir(), ".openclaw", "openclaw.json");
+    try {
+      if (!existsSync(openclawPath)) return { endpoint: "", apiKey: "", model: "" };
+      const raw = JSON.parse(readFileSync(openclawPath, "utf-8"));
+      const providers = raw?.models?.providers as Record<string, any> | undefined;
+      if (!providers) return { endpoint: "", apiKey: "", model: "" };
+
+      // Helper: resolve alias to provider/model
+      const resolveAlias = (alias: string): { providerKey: string; modelId: string } | null => {
+        const mapping = raw?.models?.aliases?.[alias];
+        if (!mapping) return null;
+        const full = typeof mapping === "string" ? mapping : mapping.provider + "/" + mapping.model;
+        const slashIdx = full.indexOf("/");
+        if (slashIdx < 0) return null;
+        return { providerKey: full.slice(0, slashIdx), modelId: full.slice(slashIdx + 1) };
+      };
+
+      const getEndpoint = (baseUrl: string | undefined): string => {
+        if (!baseUrl) return "";
+        const u = (baseUrl as string).replace(/\/+$/, "");
+        return u.endsWith("/v1") ? `${u}/chat/completions` : `${u}/v1/chat/completions`;
+      };
+
+      // Priority 1: defaultModel
+      const defaultAlias = raw?.models?.defaultModel as string | undefined;
+      if (defaultAlias) {
+        const resolved = resolveAlias(defaultAlias);
+        if (resolved && providers[resolved.providerKey]?.apiKey) {
+          const p = providers[resolved.providerKey];
+          return { endpoint: getEndpoint(p.baseUrl), apiKey: p.apiKey, model: resolved.modelId };
+        }
+      }
+
+      // Priority 2: first text model with apiKey (top-down)
+      for (const prov of Object.values(providers)) {
+        const p = prov as any;
+        if (!p?.apiKey) continue;
+        const textModel = (p.models as any[])?.find((m: any) => m.input?.includes("text"));
+        if (textModel) return { endpoint: getEndpoint(p.baseUrl), apiKey: p.apiKey, model: textModel.id };
+      }
+
+      return { endpoint: "", apiKey: "", model: "" };
+    } catch { return { endpoint: "", apiKey: "", model: "" }; }
+  }
+
+  private async _initEmailIngester(api?: any): Promise<void> {
+    if (!this.config.emailIngester.enabled) return;
+
+    const llmClient = this.getUserLLM();
+    this.emailIngester = new EmailIngester({
+      config: this.config.emailIngester,
+      kbManager: this.kbManager,
+      knowledgePath: this.config.knowledgePath,
+      llmClient,
+    });
+    await this.emailIngester.init();
   }
 
   private async _retryFailed(knowledgePath: string): Promise<void> {

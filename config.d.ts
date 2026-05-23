@@ -69,6 +69,17 @@ export interface ArkKBConfig {
         endpoint?: string;
         apiKey?: string;
     };
+    /** Email auto-ingestion config */
+    emailIngester?: {
+        enabled?: boolean;
+        host?: string;
+        port?: number;
+        tls?: boolean;
+        user?: string;
+        password?: string;
+        scanIntervalMs?: number;
+        maxRetries?: number;
+    };
 }
 export interface ResolvedConfig {
     knowledgePath: string;
@@ -135,6 +146,16 @@ export interface ResolvedConfig {
         enabled: boolean;
         endpoint: string;
         apiKey: string;
+    };
+    emailIngester: {
+        enabled: boolean;
+        host: string;
+        port: number;
+        tls: boolean;
+        user: string;
+        password: string;
+        scanIntervalMs: number;
+        maxRetries: number;
     };
 }
 export declare const DEFAULTS: Omit<ResolvedConfig, "knowledgePath">;
