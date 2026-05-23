@@ -66,7 +66,13 @@ export class EmailIngester {
     // Scan emails
     // -------------------------------------------------------------------------
     async scan() {
-        if (!this.imapClient) {
+        // Mutex: skip if previous scan is still in progress
+        if (this._scanning) {
+            return;
+        }
+        this._scanning = true;
+        try {
+            if (!this.imapClient) {
             try {
                 await this._connect();
             }
@@ -199,6 +205,9 @@ export class EmailIngester {
         }
         catch (err) {
             console.error("[EmailIngester] Scan error:", err.message);
+        }
+        finally {
+            this._scanning = false;
         }
     }
     // -------------------------------------------------------------------------
