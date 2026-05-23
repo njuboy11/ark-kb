@@ -235,6 +235,21 @@ export class KnowledgeStore {
         return await this.table.countRows();
     }
     /**
+     * Check if a file_hash exists in any source (third-layer deduplication).
+     * Returns true if the hash is found in any entry, false otherwise.
+     */
+    async hasFileHash(hash) {
+        if (!this.table) {
+            throw new Error("[Ark KB] Store not initialized — call init() first");
+        }
+        const results = await this.table.query()
+            .filter(`file_hash = "${hash}"`)
+            .limit(1)
+            .execute();
+        const rows = await collectRows(results);
+        return rows.length > 0;
+    }
+    /**
      * Close the database connection.
      */
     async close() {

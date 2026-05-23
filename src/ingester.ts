@@ -638,23 +638,16 @@ export class Ingester {
 
     const base = basename(filePath);
 
-    // Check content hash — skip if unchanged
+    // Third layer: DB hash deduplication (different name, same content)
     try {
       const newHash = await hashFile(filePath);
-      const existing = await this.store.listSources();
-      // Quick check: if source exists with same hash, skip
-      const entries = await this.store.searchBM25(base, 1);
-      if (entries.length > 0) {
-        // Try to find a matching entry by checking the source
-        const sources = await this.store.listSources();
-        if (sources.includes(base)) {
-          // We don't store hash in a queryable way without full scan,
-          // so we always re-ingest to be safe (hash check is best-effort)
-        }
+      const hashExists = await this.store.hasFileHash(newHash);
+      if (hashExists) {
+        console.log(`[Ark KB] Skipping duplicate (hash match): ${base}`);
+        return { entries: 0, source: base, skipped: true };
       }
-      void newHash; // used below
     } catch {
-      // Continue with ingestion
+      // Continue with ingestion if hash check fails
     }
 
     let entries: KBEntry[];

@@ -156,8 +156,17 @@ export declare class KBManager {
     /**
      * Ingest a file into the appropriate KB based on its path.
      * Determines KB by the folder the file is in.
+     *
+     * Three-layer deduplication:
+     * Layer 1 — same name + same hash: skip (filesystem)
+     * Layer 2 — same name + different hash: rename with _1, _2 suffix (filesystem)
+     * Layer 3 — different name + same hash: skip (DB hash check in ingester)
      */
     ingestByPath(filePath: string): Promise<IngestResult>;
+    /**
+     * Generate a unique filename by appending _1, _2, etc. if conflicts exist.
+     */
+    private _getUniqueFilename;
     /**
      * Determine which KB a file belongs to based on its path.
      * Falls back to "default" if the immediate parent folder is not a known KB.

@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { KnowledgeStore } from "./store.js";
-import { Ingester } from "./ingester.js";
+import { Ingester, hashFile } from "./ingester.js";
 import { Embedder } from "./embedder.js";
 // Type guard helpers (inline to avoid circular dependency with config.ts)
 function detectEmbeddingApi(endpoint) {
@@ -275,16 +275,58 @@ export class KBManager {
     /**
      * Ingest a file into the appropriate KB based on its path.
      * Determines KB by the folder the file is in.
+     *
+     * Three-layer deduplication:
+     * Layer 1 — same name + same hash: skip (filesystem)
+     * Layer 2 — same name + different hash: rename with _1, _2 suffix (filesystem)
+     * Layer 3 — different name + same hash: skip (DB hash check in ingester)
      */
     async ingestByPath(filePath) {
         const resolved = path.resolve(filePath);
         const kbName = this._resolveKBForPath(resolved);
+        const kbPath = path.join(this.knowledgePath, kbName);
+        // Layers 1 & 2: filesystem deduplication
+        const destName = path.basename(resolved);
+        const destPath = path.join(kbPath, destName);
+        if (fs.existsSync(destPath)) {
+            // Compute both hashes to decide: skip or rename
+            const [newHash, oldHash] = await Promise.all([
+                hashFile(resolved),
+                hashFile(destPath),
+            ]);
+            if (newHash === oldHash) {
+                // Layer 1: same name + same hash → skip
+                console.log(`[MultiKB] Skipping duplicate (same name + hash): ${destName}`);
+                return { entries: 0, source: destName, skipped: true, kbName };
+            }
+            // Layer 2: same name + different hash → rename
+            const uniqueName = this._getUniqueFilename(destName, kbPath);
+            const uniquePath = path.join(kbPath, uniqueName);
+            fs.copyFileSync(resolved, uniquePath);
+            console.log(`[MultiKB] Renamed to avoid conflict: ${destName} → ${uniqueName}`);
+            const result = await this.ingesters.get(kbName).ingestFile(uniquePath);
+            return { ...result, kbName };
+        }
+        // No conflict — copy file to KB folder and ingest
+        fs.copyFileSync(resolved, destPath);
         const ingester = this.ingesters.get(kbName);
         if (!ingester) {
             throw new Error(`[MultiKB] No ingester for KB "${kbName}" — is the KB initialized?`);
         }
-        const result = await ingester.ingestFile(resolved);
+        const result = await ingester.ingestFile(destPath);
         return { ...result, kbName };
+    }
+    /**
+     * Generate a unique filename by appending _1, _2, etc. if conflicts exist.
+     */
+    _getUniqueFilename(baseName, kbPath) {
+        const ext = path.extname(baseName);
+        const stem = path.basename(baseName, ext);
+        let i = 1;
+        while (fs.existsSync(path.join(kbPath, `${stem}_${i}${ext}`))) {
+            i++;
+        }
+        return `${stem}_${i}${ext}`;
     }
     /**
      * Determine which KB a file belongs to based on its path.

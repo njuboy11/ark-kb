@@ -77,6 +77,11 @@ export declare class KnowledgeStore {
      */
     count(): Promise<number>;
     /**
+     * Check if a file_hash exists in any source (third-layer deduplication).
+     * Returns true if the hash is found in any entry, false otherwise.
+     */
+    hasFileHash(hash: string): Promise<boolean>;
+    /**
      * Close the database connection.
      */
     close(): Promise<void>;
