@@ -14,14 +14,15 @@ export interface EmailIngesterConfig {
     maxRetries: number;
 }
 export interface EmailState {
-    lastUid: number;
+    lastProcessedTime: string;
     lastScan: number;
     totalProcessed: number;
     failed: Array<{
+        uid: number;
         messageId: string;
         error: string;
         retries: number;
-        timestamp: number;
+        arrivedAt: string;
     }>;
 }
 interface AttachmentInfo {

@@ -25,7 +25,7 @@ export class EmailIngester {
         this.llmClient = opts.llmClient;
         // State file alongside LanceDB (dbPath parent)
         this.emailStatePath = path.join(homedir(), ".ark-kb", "email-state.json");
-        this.state = { lastUid: 0, lastScan: 0, totalProcessed: 0, failed: [] };
+        this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, failed: [] };
     }
     // -------------------------------------------------------------------------
     // Init
@@ -78,32 +78,107 @@ export class EmailIngester {
         try {
             const lock = await this.imapClient.getMailboxLock("INBOX");
             try {
-                // Search for messages with UID > lastUid using imapflow fetchAll
-                const criteria = this.state.lastUid > 0
-                    ? { uid: { $gt: this.state.lastUid } }
-                    : {};
-                const messages = await this.imapClient.fetchAll({
-                    criteria,
-                    maxResults: 100,
-                    uid: true,
-                    source: true,
-                    bodyStructure: true,
-                });
+                // Step 1: Build SINCE time — if there are recent failed emails, use the oldest one
+                const retryableFailed = this.state.failed.filter(f => f.retries < 2);
+                let sinceTime;
+                if (retryableFailed.length > 0) {
+                    // Use the oldest failed email's arrivedAt time
+                    sinceTime = retryableFailed.reduce((oldest, f) => f.arrivedAt < oldest ? f.arrivedAt : oldest, retryableFailed[0].arrivedAt);
+                }
+                else {
+                    sinceTime = this.state.lastProcessedTime;
+                }
+                // Step 2: Fetch failed list emails with retries < 2 separately
+                if (retryableFailed.length > 0) {
+                    const failedUids = retryableFailed.map(f => f.uid);
+                    console.log(`[EmailIngester] Re-fetching failed emails: UIDs ${failedUids.join(", ")}`);
+                    const failedSeqNums = await this.imapClient.search({ uid: failedUids });
+                    if (Array.isArray(failedSeqNums) && failedSeqNums.length > 0) {
+                        for (const seq of failedSeqNums) {
+                            if (seq > 1000)
+                                break;
+                            console.log(`[EmailIngester] Fetching failed seq ${seq}…`);
+                            const msg = await this.imapClient.fetchOne(seq, {
+                                uid: true,
+                                source: true,
+                                envelope: true,
+                                bodyStructure: true,
+                                internalDate: true,
+                            });
+                            if (!msg)
+                                continue;
+                            const email = await this._parseEmail(msg);
+                            const failedEntry = this.state.failed.find(f => f.uid === email.uid);
+                            if (!failedEntry)
+                                continue;
+                            try {
+                                await this._processEmail(email);
+                                // Success — remove from failed list
+                                this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+                                console.log(`[EmailIngester] Successfully reprocessed UID ${email.uid}`);
+                            }
+                            catch (err) {
+                                console.error(`[EmailIngester] Re-process failed for UID ${email.uid}:`, err.message);
+                                this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
+                            }
+                        }
+                    }
+                }
+                // Step 3: Regular scan since lastProcessedTime
+                const criteria = { since: new Date(sinceTime) };
+                const seqNums = await this.imapClient.search(criteria);
+                const matches = Array.isArray(seqNums) ? seqNums : [];
+                console.log(`[EmailIngester] search criteria:`, JSON.stringify(criteria), `→ ${matches.length} matches`);
                 let count = 0;
-                for (const msg of messages.messages || messages) {
+                let maxSeenInternalDate = sinceTime;
+                for (const seq of matches) {
+                    if (seq > 1000)
+                        break;
+                    console.log(`[EmailIngester] Fetching seq ${seq}…`);
+                    const msg = await this.imapClient.fetchOne(seq, {
+                        uid: true,
+                        source: true,
+                        envelope: true,
+                        bodyStructure: true,
+                        internalDate: true,
+                    });
+                    if (!msg) {
+                        console.log(`[EmailIngester] seq ${seq} returned null`);
+                        continue;
+                    }
                     const email = await this._parseEmail(msg);
+                    console.log(`[EmailIngester] seq ${seq} UID=${email.uid} subj="${email.subject}" att=${email.attachments.length}`);
+                    // Skip if in failed list with retries >= 2
+                    const failedEntry = this.state.failed.find(f => f.uid === email.uid);
+                    if (failedEntry && failedEntry.retries >= 2) {
+                        console.log(`[EmailIngester] Skipping UID ${email.uid} — permanently failed`);
+                        continue;
+                    }
+                    // Skip emails without attachments
                     if (email.attachments.length === 0) {
-                        if (msg.uid > this.state.lastUid) {
-                            this.state.lastUid = msg.uid;
+                        // Track the internal date but don't process
+                        if (email.internalDate > maxSeenInternalDate) {
+                            maxSeenInternalDate = email.internalDate;
                         }
                         continue;
                     }
-                    await this._processEmail(email);
-                    if (msg.uid > this.state.lastUid) {
-                        this.state.lastUid = msg.uid;
+                    try {
+                        await this._processEmail(email);
+                        // Success — remove from failed list if present
+                        this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+                        count++;
                     }
-                    count++;
+                    catch (err) {
+                        console.error(`[EmailIngester] Failed to process UID ${email.uid}:`, err.message);
+                        this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
+                    }
+                    // Track latest internal date
+                    if (email.internalDate > maxSeenInternalDate) {
+                        maxSeenInternalDate = email.internalDate;
+                    }
                 }
+                // Update lastProcessedTime to the latest internal date seen
+                this.state.lastProcessedTime = maxSeenInternalDate;
                 this.state.lastScan = Date.now();
                 if (count > 0) {
                     console.log(`[EmailIngester] Processed ${count} email(s) with attachments`);
@@ -151,7 +226,7 @@ export class EmailIngester {
                 catch (err) {
                     retries++;
                     if (retries > this.config.maxRetries) {
-                        this._recordFailure(email.messageId, `Failed to write attachment ${att.filename}: ${err.message}`);
+                        this._recordFailure(email.uid, email.messageId, `Failed to write attachment ${att.filename}: ${err.message}`, email.internalDate);
                     }
                     else {
                         await this._sleep(1000 * retries);
@@ -188,7 +263,7 @@ export class EmailIngester {
                     catch (err) {
                         retries++;
                         if (retries > this.config.maxRetries) {
-                            this._recordFailure(email.messageId, `Failed to ingest ${path.basename(destPath)}: ${err.message}`);
+                            this._recordFailure(email.uid, email.messageId, `Failed to ingest ${path.basename(destPath)}: ${err.message}`, email.internalDate);
                             try {
                                 fs.unlinkSync(destPath);
                             }
@@ -414,6 +489,11 @@ export class EmailIngester {
         const envelope = msg.envelope ?? {};
         const subject = envelope.subject ?? "(no subject)";
         const messageId = envelope.messageId ?? String(msg.uid);
+        const uid = msg.uid ?? 0;
+        // Get INTERNALDATE and convert to ISO string
+        const internalDate = msg.internalDate
+            ? (typeof msg.internalDate === "string" ? msg.internalDate : new Date(msg.internalDate).toISOString())
+            : new Date().toISOString();
         // Get text body
         let body = "";
         try {
@@ -423,28 +503,26 @@ export class EmailIngester {
         catch {
             body = "";
         }
-        // Get attachments
+        // Get attachments — use mailparser to parse raw source
         const attachments = [];
         try {
-            if (msg.hasAttachments || (envelope.headers && Object.keys(envelope.headers).length > 0)) {
-                // Fetch full message to access attachments
-                const full = await msg.fullJson();
-                if (full?.body?.attachments) {
-                    for (const att of full.body.attachments) {
-                        const filename = att.filename ?? `attachment_${attachments.length}`;
-                        const mimeType = att.contentType ?? "application/octet-stream";
-                        const data = Buffer.from(att.content ?? "", "base64");
-                        if (data.length > 0) {
-                            attachments.push({ filename, mimeType, data });
-                        }
+            if (msg.source) {
+                const { simpleParser } = await import("mailparser");
+                const parsed = await simpleParser(msg.source);
+                for (const att of parsed.attachments || []) {
+                    const filename = att.filename ?? `attachment_${attachments.length}`;
+                    const mimeType = att.contentType ?? "application/octet-stream";
+                    const data = att.content instanceof Buffer ? att.content : Buffer.from(att.content || "");
+                    if (data.length > 0) {
+                        attachments.push({ filename, mimeType, data });
                     }
                 }
             }
         }
         catch (err) {
-            console.warn(`[EmailIngester] Failed to parse attachments for UID ${msg.uid}:`, err.message);
+            console.warn(`[EmailIngester] Failed to parse attachments for UID ${uid}:`, err.message);
         }
-        return { messageId, subject, body, attachments };
+        return { messageId, subject, body, attachments, internalDate, uid };
     }
     // -------------------------------------------------------------------------
     // State management
@@ -455,7 +533,7 @@ export class EmailIngester {
                 const raw = fs.readFileSync(this.emailStatePath, "utf-8");
                 const loaded = JSON.parse(raw);
                 this.state = {
-                    lastUid: loaded.lastUid ?? 0,
+                    lastProcessedTime: loaded.lastProcessedTime ?? new Date(0).toISOString(),
                     lastScan: loaded.lastScan ?? 0,
                     totalProcessed: loaded.totalProcessed ?? 0,
                     failed: loaded.failed ?? [],
@@ -476,25 +554,17 @@ export class EmailIngester {
             console.error("[EmailIngester] Failed to save state:", err.message);
         }
     }
-    _recordFailure(messageId, error) {
-        const existing = this.state.failed.findIndex(f => f.messageId === messageId);
-        if (existing >= 0) {
-            this.state.failed[existing].retries++;
-            this.state.failed[existing].error = error;
-            this.state.failed[existing].timestamp = Date.now();
+    _recordFailure(uid, messageId, error, arrivedAt) {
+        const existing = this.state.failed.find(f => f.uid === uid);
+        if (existing) {
+            existing.retries = (existing.retries || 0) + 1;
+            existing.error = error;
         }
         else {
-            this.state.failed.push({
-                messageId,
-                error,
-                retries: 1,
-                timestamp: Date.now(),
-            });
+            this.state.failed.push({ uid, messageId, error, retries: 1, arrivedAt });
         }
-        // Keep only last 100 failures
-        if (this.state.failed.length > 100) {
-            this.state.failed = this.state.failed.slice(-100);
-        }
+        // Clean up permanently failed (retries >= 2)
+        this.state.failed = this.state.failed.filter(f => f.retries < 2);
         this._saveState();
     }
     // -------------------------------------------------------------------------
