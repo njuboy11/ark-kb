@@ -42,5 +42,8 @@
     "extensions": [
       "./index.js"
     ]
+  },
+  "bin": {
+    "ark-kb": "cli.js"
   }
 }
