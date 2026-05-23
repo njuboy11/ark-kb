@@ -141,10 +141,16 @@ export class EmailIngester {
     try {
       const lock = await this.imapClient.getMailboxLock("INBOX");
       try {
-        // Step 1: Use lastProcessedTime for forward scanning.
-        // Failed emails are retried separately by UID below.
+        // Step 1: Build SINCE time — if there are recent failed emails, use the oldest one
         const retryableFailed = this.state.failed.filter(f => f.retries < 2);
-        const sinceTime = this.state.lastProcessedTime;
+        let sinceTime: string;
+        if (retryableFailed.length > 0) {
+          // Use the oldest failed email's arrivedAt time
+          sinceTime = retryableFailed.reduce((oldest, f) =>
+            f.arrivedAt < oldest ? f.arrivedAt : oldest, retryableFailed[0].arrivedAt);
+        } else {
+          sinceTime = this.state.lastProcessedTime;
+        }
 
         // Step 2: Fetch failed list emails with retries < 2 separately
         if (retryableFailed.length > 0) {
@@ -212,25 +218,24 @@ export class EmailIngester {
           // Skip emails without attachments (no-op, don't bump timestamp)
           if (email.attachments.length === 0) continue;
 
-          // Always advance the timestamp cursor past this email
-          // so it won't be re-scanned. Failed emails are retried by UID separately.
-          if (email.internalDate > maxProcessedInternalDate) {
-            maxProcessedInternalDate = email.internalDate;
-          }
           try {
             await this._processEmail(email);
-            // Success — remove from failed list
+            // Success — remove from failed list, track processed time
             this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+            if (email.internalDate > maxProcessedInternalDate) {
+              maxProcessedInternalDate = email.internalDate;
+            }
             count++;
           } catch (err: any) {
             console.error(`[EmailIngester] Failed to process UID ${email.uid}:`, err.message);
             this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
+            // DO NOT advance timestamp — failed emails will be retried next scan
           }
         }
 
-        // Always advance the timestamp to the latest scanned email, even if
-        // some failed. Individual retries are handled by UID in the next scan.
-        if (maxProcessedInternalDate !== sinceTime) {
+        // Only advance lastProcessedTime for SUCCESSFULLY processed emails.
+        // Failed emails stay behind the cursor → retried next scan.
+        if (count > 0) {
           this.state.lastProcessedTime = maxProcessedInternalDate;
         }
         // If nothing was processed → keep old timestamp → all emails retried

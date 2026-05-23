@@ -296,7 +296,7 @@ export class KBManager {
         // Layers 1 & 2: filesystem deduplication
         const destName = path.basename(resolved);
         const destPath = path.join(kbPath, destName);
-        if (fs.existsSync(destPath)) {
+        if (fs.existsSync(destPath) && resolved !== destPath) {
             // Compute both hashes to decide: skip or rename
             const [newHash, oldHash] = await Promise.all([
                 hashFile(resolved),
