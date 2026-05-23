@@ -42,6 +42,7 @@ export class KBManager {
     _videoConfig;
     _imageConfig;
     _embeddingMethod;
+    _pdfParser;
     constructor(opts) {
         this.knowledgePath = opts.knowledgePath;
         this.dbPath = opts.dbPath;
@@ -67,6 +68,13 @@ export class KBManager {
         this._embeddingMethod = {
             image: opts.embeddingMethod?.image ?? "text",
             video: opts.embeddingMethod?.video ?? "text",
+        };
+        this._pdfParser = {
+            api: opts.pdfParser?.api ?? "none",
+            endpoint: opts.pdfParser?.endpoint ?? "",
+            apiKey: opts.pdfParser?.apiKey ?? "",
+            model: opts.pdfParser?.model ?? "",
+            params: opts.pdfParser?.params ?? {},
         };
     }
     // -------------------------------------------------------------------------
@@ -128,7 +136,7 @@ export class KBManager {
             dimensions: this.vectorDim,
             batchSize: 16,
         });
-        const pdfParser = { api: "none", endpoint: "", apiKey: "", model: "", params: {} };
+        const pdfParser = { ...this._pdfParser };
         return new Ingester(store, embedder, { chunking: this.embedderConfig.chunking, pdfParser }, { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs }, { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs }, { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video });
     }
     // -------------------------------------------------------------------------

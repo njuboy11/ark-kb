@@ -164,13 +164,12 @@ export async function extractPdfText(
   // Built-in pdf-parse fallback
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pdfParse: (buf: Buffer) => Promise<{ text: string }> = require("pdf-parse") as any;
+    const pdfParse: (buf: Buffer) => Promise<{ text: string }> = (await import("pdf-parse")).default as any;
     const dataBuffer = await readFile(filePath);
     const data = await pdfParse(dataBuffer);
     return data.text || "";
-  } catch (err) {
-    console.warn(`[Ark KB] pdf-parse failed for ${filePath}, trying raw extraction:`, err);
-    return await extractPdfBuiltin(filePath);
+  } catch (err: any) {
+    throw new Error(`PDF parsing failed for ${filePath}: both MinerU and pdf-parse are unavailable. ${err.message}`);
   }
 }
 

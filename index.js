@@ -101,6 +101,13 @@ export class ArkKB {
                 image: this.config.embedding.method.image,
                 video: this.config.embedding.method.video,
             },
+            pdfParser: {
+                api: "mineru",
+                endpoint: this.config.pdfParser.endpoint,
+                apiKey: this.config.pdfParser.apiKey,
+                model: this.config.pdfParser.model,
+                params: this.config.pdfParser.params,
+            },
         });
         // Embedder for query embedding (used in search)
         this.embedder = new Embedder({

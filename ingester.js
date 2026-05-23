@@ -123,17 +123,17 @@ export async function extractPdfText(filePath, pdfConfig) {
     if (pdfConfig.api === "mineru" && pdfConfig.endpoint) {
         return await extractPdfMinerU(filePath, pdfConfig);
     }
-    // Built-in pdf-parse fallback
+    // Built-in pdf-parse fallback (v1.x loaded via createRequire for ESM compat)
     try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const pdfParse = require("pdf-parse");
+        const { createRequire } = await import("node:module");
+        const _require = createRequire(import.meta.url);
+        const pdfParse = _require("pdf-parse");
         const dataBuffer = await readFile(filePath);
         const data = await pdfParse(dataBuffer);
         return data.text || "";
     }
     catch (err) {
-        console.warn(`[Ark KB] pdf-parse failed for ${filePath}, trying raw extraction:`, err);
-        return await extractPdfBuiltin(filePath);
+        throw new Error(`PDF parsing failed for ${filePath}: both MinerU and pdf-parse are unavailable. ${err.message}`);
     }
 }
 async function extractPdfMinerU(filePath, config) {
