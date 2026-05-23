@@ -112,7 +112,8 @@ export class EmailIngester {
     // Connect
     await this._connect();
 
-    // Start scanning
+    // Start scanning — do an initial scan immediately, then every interval
+    this.scan().catch(err => console.error("[EmailIngester] Initial scan error:", err.message));
     this.scanTimer = setInterval(() => {
       this.scan().catch(err => console.error("[EmailIngester] Scan error:", err.message));
     }, this.config.scanIntervalMs);
@@ -137,23 +138,23 @@ export class EmailIngester {
     try {
       const lock = await this.imapClient.getMailboxLock("INBOX");
       try {
-        // Search for messages with UID > lastUid
-        const query: any = {};
-        if (this.state.lastUid > 0) {
-          query.uid = { $gt: this.state.lastUid };
-        }
+        // Search for messages with UID > lastUid using imapflow fetchAll
+        const criteria = this.state.lastUid > 0
+          ? { uid: { $gt: this.state.lastUid } }
+          : {};
 
-        const messages = this.imapClient.scan({
-          path: "INBOX",
-          query,
-          maxMessages: 100,
+        const messages = await this.imapClient.fetchAll({
+          criteria,
+          maxResults: 100,
+          uid: true,
+          source: true,
+          bodyStructure: true,
         });
 
         let count = 0;
-        for await (const msg of messages) {
+        for (const msg of (messages as any).messages || messages) {
           const email = await this._parseEmail(msg);
           if (email.attachments.length === 0) {
-            // Update lastUid even for non-attachment emails
             if (msg.uid > this.state.lastUid) {
               this.state.lastUid = msg.uid;
             }
@@ -487,8 +488,8 @@ export class EmailIngester {
       logger: {
         debug: () => {},
         info: () => {},
-        warn: (msg: string) => console.warn(`[IMAP] ${msg}`),
-        error: (msg: string) => console.error(`[IMAP] ${msg}`),
+        warn: () => {},
+        error: (msg: string) => console.error(`[EmailIngester] IMAP error: ${msg}`),
       },
     });
 
