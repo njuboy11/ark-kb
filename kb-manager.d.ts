@@ -63,11 +63,10 @@ export interface MultiKBOptions {
         apiKey: string;
         timeoutMs: number;
     };
-    /** Embedding/Reranker mode settings */
-    modes?: {
-        embeddingMode?: "text" | "multimodal";
-        imageRerankerMode?: "text" | "multimodal";
-        videoRerankerMode?: "text" | "multimodal";
+    /** Embedding method per modality */
+    embeddingMethod?: {
+        image?: "text" | "multimodal";
+        video?: "text" | "multimodal";
     };
 }
 /**
@@ -92,7 +91,7 @@ export declare class KBManager {
     private ingesters;
     private _videoConfig;
     private _imageConfig;
-    private _modes;
+    private _embeddingMethod;
     constructor(opts: MultiKBOptions);
     /**
      * Initialize: scan subfolders, auto-migrate root-level files to `default`,

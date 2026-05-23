@@ -3,6 +3,33 @@
  * Multi-API embedder supporting DashScope, SiliconFlow, OpenAI, and custom endpoints.
  * Batch embedding with configurable batch size and exponential backoff retries.
  */
+// ============================================================================
+// Model capabilities registry
+// ============================================================================
+/** Supported input modalities per embedding model */
+const MODEL_CAPABILITIES = {
+    "text-embedding-v4": ["text"],
+    "text-embedding-v3": ["text"],
+    "text-embedding-v2": ["text"],
+    "Qwen/Qwen3-VL-Embedding-8B": ["text", "image"],
+    "text-embedding-3-large": ["text"],
+    "text-embedding-3-small": ["text"],
+    "text-embedding-ada-002": ["text"],
+};
+/** Get the modalities supported by an embedding model. Defaults to ["text"]. */
+export function getModelCapabilities(model) {
+    return MODEL_CAPABILITIES[model] ?? ["text"];
+}
+/** Reranker model capabilities */
+const RERANKER_MODEL_CAPABILITIES = {
+    "Qwen/Qwen3-Reranker-8B": ["text"],
+    "BAAI/bge-reranker-v2-m3": ["text"],
+    "Qwen/Qwen3-VL-Reranker-8B": ["text", "image"],
+};
+/** Get the modalities supported by a reranker model. Defaults to ["text"]. */
+export function getRerankerCapabilities(model) {
+    return RERANKER_MODEL_CAPABILITIES[model] ?? ["text"];
+}
 const EMBEDDING_MODEL_PRESETS = {
     dashscope: {
         "text-embedding-v4": { batchSize: 10, endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings", dimensions: 2048, modalities: ["text"] },
@@ -38,6 +65,47 @@ export function resolveEmbeddingEndpoint(api, model, userEndpoint) {
 export function resolveEmbeddingModalities(api, model) {
     return getPreset(api, model)?.modalities ?? ["text"];
 }
+/** Resolve reranker capabilities by API + model name */
+export function resolveRerankerCapabilities(api, model) {
+    const apiLower = api.toLowerCase();
+    if (apiLower === "siliconflow") {
+        return RERANKER_MODEL_PRESETS.siliconflow?.[model]?.modalities ?? getRerankerCapabilities(model);
+    }
+    if (apiLower === "cohere") {
+        return RERANKER_MODEL_PRESETS.cohere?.[model]?.modalities ?? getRerankerCapabilities(model);
+    }
+    return getRerankerCapabilities(model);
+}
+const RERANKER_MODEL_PRESETS = {
+    siliconflow: {
+        "BAAI/bge-reranker-v2-m3": {
+            endpoint: "https://api.siliconflow.cn/v1/rerank",
+            model: "BAAI/bge-reranker-v2-m3",
+            minScore: 0.35,
+            modalities: ["text"],
+        },
+        "Qwen/Qwen3-Reranker-8B": {
+            endpoint: "https://api.siliconflow.cn/v1/rerank",
+            model: "Qwen/Qwen3-Reranker-8B",
+            minScore: 0.1,
+            modalities: ["text"],
+        },
+        "Qwen/Qwen3-VL-Reranker-8B": {
+            endpoint: "https://api.siliconflow.cn/v1/rerank",
+            model: "Qwen/Qwen3-VL-Reranker-8B",
+            minScore: 0.1,
+            modalities: ["text", "image"],
+        },
+    },
+    cohere: {
+        "rerank-multilingual-v3.0": {
+            endpoint: "https://api.cohere.ai/v1/rerank",
+            model: "rerank-multilingual-v3.0",
+            minScore: 0.35,
+            modalities: ["text"],
+        },
+    },
+};
 // ============================================================================
 // Media file exposure — for multimodal APIs that need HTTPS URL or base64
 // ============================================================================

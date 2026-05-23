@@ -11,6 +11,11 @@ export interface ArkKBConfig {
         apiKey?: string;
         model?: string;
         dimensions?: number;
+        /** Embedding method per modality. "text" = VLM summary → text embedding. "multimodal" = direct multimodal embedding. */
+        method?: {
+            image?: "text" | "multimodal";
+            video?: "text" | "multimodal";
+        };
     };
     reranker?: {
         /** Set to false to disable reranking entirely */
@@ -58,17 +63,7 @@ export interface ArkKBConfig {
         /** Max frames to send to VLM (default 100) */
         maxFrames?: number;
     };
-    /** "text" = everything through text embedding (VLM summaries for non-text). "multimodal" = media can use multimodal embedding. Default: "text" */
-    embeddingMode?: "text" | "multimodal";
-    image?: {
-        /** "text" = VLM summary → text embedding → text reranker. "multimodal" = direct multimodal embedding → multimodal reranker. Default: "text" */
-        rerankerMode?: "text" | "multimodal";
-    };
-    video?: {
-        /** "text" = VLM summary → text embedding → text reranker. "multimodal" = direct multimodal embedding → multimodal reranker. Default: "text" */
-        rerankerMode?: "text" | "multimodal";
-    };
-    /** Image summarization via VLM (used when image.rerankerMode = "text"). Defaults to videoSummarizer values. */
+    /** Image summarizer config (used when embedding.method.image = "text"). Defaults to videoSummarizer values. */
     imageSummarizer?: {
         enabled?: boolean;
         endpoint?: string;
@@ -87,6 +82,10 @@ export interface ResolvedConfig {
         model: string;
         dimensions: number;
         batchSize: number;
+        method: {
+            image: "text" | "multimodal";
+            video: "text" | "multimodal";
+        };
     };
     reranker: {
         enabled: boolean;
@@ -131,13 +130,6 @@ export interface ResolvedConfig {
         endpoint: string;
         apiKey: string;
         maxFrames: number;
-    };
-    embeddingMode: "text" | "multimodal";
-    image: {
-        rerankerMode: "text" | "multimodal";
-    };
-    video: {
-        rerankerMode: "text" | "multimodal";
     };
     imageSummarizer: {
         enabled: boolean;

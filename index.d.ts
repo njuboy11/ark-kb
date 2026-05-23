@@ -303,9 +303,10 @@ export interface IngesterConfig {
 export interface SearcherConfig {
     search: ResolvedConfig["search"];
     reranker: ResolvedConfig["reranker"];
-    embeddingMode: ResolvedConfig["embeddingMode"];
-    image: ResolvedConfig["image"];
-    video: ResolvedConfig["video"];
+    method: {
+        image: "text" | "multimodal";
+        video: "text" | "multimodal";
+    };
 }
 export interface WatcherConfig {
     enabled: boolean;

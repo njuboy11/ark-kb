@@ -118,10 +118,9 @@ export class ArkKB {
         apiKey: this.config.imageSummarizer.apiKey,
         timeoutMs: 60_000,
       },
-      modes: {
-        embeddingMode: this.config.embeddingMode,
-        imageRerankerMode: this.config.image.rerankerMode,
-        videoRerankerMode: this.config.video.rerankerMode,
+      embeddingMethod: {
+        image: this.config.embedding.method.image,
+        video: this.config.embedding.method.video,
       },
     });
 
@@ -162,9 +161,10 @@ export class ArkKB {
       {
         search: this.config.search,
         reranker: this.config.reranker,
-        embeddingMode: this.config.embeddingMode,
-        image: this.config.image,
-        video: this.config.video,
+        method: {
+          image: this.config.embedding.method.image,
+          video: this.config.embedding.method.video,
+        },
       },
     );
 
@@ -230,6 +230,11 @@ export class ArkKB {
       kbName?: string;
     },
   ): Promise<any[]> {
+    const methodConfig = {
+      image: this.config.embedding.method.image,
+      video: this.config.embedding.method.video,
+    };
+
     // Specific KB requested
     if (options?.kbName) {
       const store = this.kbManager.getKB(options.kbName);
@@ -239,9 +244,7 @@ export class ArkKB {
       const searcher = new Searcher(store, this.embedder, this.config.knowledgePath, {
         search: this.config.search,
         reranker: this.config.reranker,
-        embeddingMode: this.config.embeddingMode,
-        image: this.config.image,
-        video: this.config.video,
+        method: methodConfig,
       });
       return await searcher.search({
         query,
@@ -259,9 +262,7 @@ export class ArkKB {
         const s = new Searcher(store, this.embedder, this.config.knowledgePath, {
           search: this.config.search,
           reranker: this.config.reranker,
-          embeddingMode: this.config.embeddingMode,
-          image: this.config.image,
-          video: this.config.video,
+          method: methodConfig,
         });
         // Searcher returns SearchResult[] — transform to { entry, score }[] for KBManager
         const hits = await s.search({ query: q, topK, resultCount: options?.resultCount });
@@ -604,9 +605,10 @@ export interface IngesterConfig {
 export interface SearcherConfig {
   search: ResolvedConfig["search"];
   reranker: ResolvedConfig["reranker"];
-  embeddingMode: ResolvedConfig["embeddingMode"];
-  image: ResolvedConfig["image"];
-  video: ResolvedConfig["video"];
+  method: {
+    image: "text" | "multimodal";
+    video: "text" | "multimodal";
+  };
 }
 
 export interface WatcherConfig {

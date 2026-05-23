@@ -160,7 +160,7 @@ async function main() {
                 }
                 console.log(`DB:     ${resolved.storage.dbPath}`);
                 console.log(`Emb:    ${resolved.embedding.model} (${resolved.embedding.dimensions}d)`);
-                console.log(`Mode:   ${resolved.embeddingMode} | img=${resolved.image.rerankerMode} vid=${resolved.video.rerankerMode}`);
+                console.log(`Method: img=${resolved.embedding.method.image} vid=${resolved.embedding.method.video}`);
                 break;
             }
             case "create": {

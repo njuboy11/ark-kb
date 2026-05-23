@@ -2,7 +2,7 @@
  * Ark KB — Configuration Types
  */
 import { existsSync, readFileSync } from "node:fs";
-import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint, resolveEmbeddingModalities } from "./embedder.js";
+import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint, resolveEmbeddingModalities, resolveRerankerCapabilities } from "./embedder.js";
 export const DEFAULTS = {
     storage: {
         dbPath: "~/.ark-kb/lancedb",
@@ -14,6 +14,7 @@ export const DEFAULTS = {
         model: "Qwen/Qwen3-VL-Embedding-8B",
         dimensions: 4096,
         batchSize: 16,
+        method: { image: "text", video: "text" },
     },
     reranker: {
         enabled: true,
@@ -54,9 +55,6 @@ export const DEFAULTS = {
         apiKey: "",
         maxFrames: 100,
     },
-    embeddingMode: "text",
-    image: { rerankerMode: "text" },
-    video: { rerankerMode: "text" },
     imageSummarizer: {
         enabled: false,
         endpoint: "https://api.minimaxi.com/v1/coding_plan/vlm",
@@ -95,9 +93,6 @@ function detectPdfParserApi(endpoint, apiKey) {
     return "builtin";
 }
 // ============================================================================
-// Config resolver
-// ============================================================================
-// ============================================================================
 // Config validation (for standalone config file)
 // ============================================================================
 export function validateConfig(raw) {
@@ -135,6 +130,18 @@ export function validateConfig(raw) {
         }
         if (e.dimensions !== undefined && typeof e.dimensions !== "number") {
             errors.push("embedding.dimensions must be a number");
+        }
+        if (e.method !== undefined && typeof e.method !== "object") {
+            errors.push("embedding.method must be an object");
+        }
+        if (e.method) {
+            const m = e.method;
+            if (m.image !== undefined && !["text", "multimodal"].includes(m.image)) {
+                errors.push("embedding.method.image must be 'text' or 'multimodal'");
+            }
+            if (m.video !== undefined && !["text", "multimodal"].includes(m.video)) {
+                errors.push("embedding.method.video must be 'text' or 'multimodal'");
+            }
         }
     }
     if (c.reranker) {
@@ -191,53 +198,67 @@ export function validateConfig(raw) {
             errors.push("watcher.debounceMs must be a number");
         }
     }
-    // embeddingMode
-    if (c.embeddingMode !== undefined && !["text", "multimodal"].includes(c.embeddingMode)) {
-        errors.push("embeddingMode must be 'text' or 'multimodal'");
-    }
-    // image.rerankerMode
-    if (c.image) {
-        const img = c.image;
-        if (img.rerankerMode !== undefined && !["text", "multimodal"].includes(img.rerankerMode)) {
-            errors.push("image.rerankerMode must be 'text' or 'multimodal'");
-        }
-    }
-    // video.rerankerMode
-    if (c.video) {
-        const vid = c.video;
-        if (vid.rerankerMode !== undefined && !["text", "multimodal"].includes(vid.rerankerMode)) {
-            errors.push("video.rerankerMode must be 'text' or 'multimodal'");
-        }
-    }
     // ── Cross-field validation ────────────────────────────────
-    const embMode = c.embeddingMode ?? "text";
-    const imgMode = c.image?.rerankerMode ?? "text";
-    const vidMode = c.video?.rerankerMode ?? "text";
-    const needsMultimodalRerank = embMode === "multimodal" && (imgMode === "multimodal" || vidMode === "multimodal");
-    if (needsMultimodalRerank) {
-        // embedding model must support image modality
-        const e = c.embedding;
-        if (e?.model) {
-            // Try all known APIs to find the model preset (user may not have endpoint configured)
-            let modalities = [];
-            for (const api of ["siliconflow", "dashscope", "openai"]) {
-                const m = resolveEmbeddingModalities(api, e.model);
-                if (m.length > 1 || m[0] !== "text") {
-                    modalities = m;
-                    break;
+    const e = c.embedding;
+    const r = c.reranker;
+    const rerankEnabled = r?.enabled !== false;
+    // Resolve effective method values
+    const embMethod = e?.method;
+    const methodImage = embMethod?.image ?? "text";
+    const methodVideo = embMethod?.video ?? "text";
+    // Rule D: reranker.enabled=false → skip all reranker validation
+    if (!rerankEnabled) {
+        return errors;
+    }
+    // Rule A: model only supports "text" → image and video must be "text"
+    // Rule B: model supports ["text", "image"] but not "video" → video must be "text"
+    if (e?.model) {
+        const embedApi = detectEmbeddingApi(e.endpoint ?? "");
+        const capabilities = resolveEmbeddingModalities(embedApi, e.model);
+        const hasImage = capabilities.includes("image");
+        const hasVideo = capabilities.includes("video");
+        if (!hasImage && !hasVideo) {
+            // text-only model — both must be text
+            if (methodImage !== "text") {
+                errors.push(`Embedding model "${e.model}" is text-only. Set embedding.method.image to "text".`);
+            }
+            if (methodVideo !== "text") {
+                errors.push(`Embedding model "${e.model}" is text-only. Set embedding.method.video to "text".`);
+            }
+        }
+        else {
+            // model has some multimodal support
+            if (!hasImage && methodImage === "multimodal") {
+                errors.push(`Embedding model "${e.model}" does not support image modality. Set embedding.method.image to "text" or use a multimodal model (e.g. Qwen/Qwen3-VL-Embedding-8B).`);
+            }
+            if (!hasVideo && methodVideo === "multimodal") {
+                errors.push(`Embedding model "${e.model}" does not support video modality. Set embedding.method.video to "text" or use a model with video support.`);
+            }
+            if (!hasVideo) {
+                // model supports image but not video
+                if (methodVideo === "multimodal") {
+                    errors.push(`Embedding model "${e.model}" does not support video modality. Set embedding.method.video to "text".`);
                 }
             }
-            if (modalities.length === 0)
-                modalities = resolveEmbeddingModalities("siliconflow", e.model);
-            if (!modalities.includes("image")) {
-                errors.push(`Embedding model "${e.model}" does not support image modality. Use a multimodal model (e.g. Qwen/Qwen3-VL-Embedding-8B) when image/video uses multimodal reranker mode.`);
-            }
         }
-        // multimodal reranker must be configured
-        const r = c.reranker;
+    }
+    // Rule C: reranker.enabled=true + mm method → need reranker.multimodal
+    const mmMethod = methodImage === "multimodal" || methodVideo === "multimodal";
+    if (mmMethod) {
         const mm = r?.multimodal;
         if (!mm || !mm.apiKey) {
-            errors.push("reranker.multimodal must be configured (model + apiKey) when image or video uses multimodal reranker mode");
+            errors.push("reranker.multimodal.apiKey must be configured when embedding.method.image or embedding.method.video is 'multimodal'");
+        }
+        // Check multimodal reranker supports the required modalities
+        if (mm && mm.apiKey && mm.model) {
+            const mmEndpoint = mm.endpoint || r?.endpoint || "";
+            const mmCapabilities = resolveRerankerCapabilities(detectRerankerApi(mmEndpoint, mm.apiKey), mm.model);
+            if (methodImage === "multimodal" && !mmCapabilities.includes("image")) {
+                errors.push(`Reranker model "${mm.model}" does not support image modality. Multimodal reranker for images must support image.`);
+            }
+            if (methodVideo === "multimodal" && !mmCapabilities.includes("video")) {
+                errors.push(`Reranker model "${mm.model}" does not support video modality. Multimodal reranker for video must support video.`);
+            }
         }
     }
     return errors;
@@ -255,11 +276,11 @@ export function loadConfigFromFile(filePath) {
         }
         return { config: parsed, errors: [] };
     }
-    catch (e) {
-        if (e instanceof SyntaxError) {
-            return { config: null, errors: [`Invalid JSON: ${e.message}`] };
+    catch (err) {
+        if (err instanceof SyntaxError) {
+            return { config: null, errors: [`Invalid JSON: ${err.message}`] };
         }
-        return { config: null, errors: [`Failed to read config file: ${e.message}`] };
+        return { config: null, errors: [`Failed to read config file: ${err.message}`] };
     }
 }
 export function resolveConfig(raw) {
@@ -282,6 +303,10 @@ export function resolveConfig(raw) {
             model: embedModel,
             dimensions: resolveEmbeddingDimensions(detectEmbeddingApi(embedEndpoint), embedModel, raw.embedding?.dimensions),
             batchSize: resolveEmbeddingBatchSize(detectEmbeddingApi(embedEndpoint), embedModel),
+            method: {
+                image: raw.embedding?.method?.image ?? DEFAULTS.embedding.method.image,
+                video: raw.embedding?.method?.video ?? DEFAULTS.embedding.method.video,
+            },
         },
         reranker: {
             enabled: raw.reranker?.enabled ?? DEFAULTS.reranker.enabled,
@@ -322,13 +347,6 @@ export function resolveConfig(raw) {
             endpoint: raw.videoSummarizer?.endpoint ?? DEFAULTS.videoSummarizer.endpoint,
             apiKey: raw.videoSummarizer?.apiKey ?? DEFAULTS.videoSummarizer.apiKey,
             maxFrames: raw.videoSummarizer?.maxFrames ?? DEFAULTS.videoSummarizer.maxFrames,
-        },
-        embeddingMode: raw.embeddingMode ?? DEFAULTS.embeddingMode,
-        image: {
-            rerankerMode: raw.image?.rerankerMode ?? DEFAULTS.image.rerankerMode,
-        },
-        video: {
-            rerankerMode: raw.video?.rerankerMode ?? DEFAULTS.video.rerankerMode,
         },
         imageSummarizer: {
             enabled: raw.imageSummarizer?.enabled ?? raw.videoSummarizer?.enabled ?? DEFAULTS.imageSummarizer.enabled,

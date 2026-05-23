@@ -28,9 +28,8 @@ export declare class Ingester {
     private config;
     private videoConfig;
     private imageConfig;
-    private embeddingMode;
-    private imageRerankerMode;
-    private videoRerankerMode;
+    private imageMethod;
+    private videoMethod;
     constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig, videoConfig?: {
         endpoint: string;
         apiKey: string;
@@ -41,9 +40,8 @@ export declare class Ingester {
         apiKey: string;
         timeoutMs: number;
     }, modes?: {
-        embeddingMode?: "text" | "multimodal";
-        imageRerankerMode?: "text" | "multimodal";
-        videoRerankerMode?: "text" | "multimodal";
+        imageMethod?: "text" | "multimodal";
+        videoMethod?: "text" | "multimodal";
     });
     /**
      * Ingest a single file: detect type → hash → chunk → embed → upsert.

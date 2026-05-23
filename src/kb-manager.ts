@@ -62,8 +62,8 @@ export interface MultiKBOptions {
   videoConfig?: { endpoint: string; apiKey: string; maxFrames: number; timeoutMs?: number };
   /** Image summarizer config (needed for image text mode) */
   imageConfig?: { endpoint: string; apiKey: string; timeoutMs: number };
-  /** Embedding/Reranker mode settings */
-  modes?: { embeddingMode?: "text" | "multimodal"; imageRerankerMode?: "text" | "multimodal"; videoRerankerMode?: "text" | "multimodal" };
+  /** Embedding method per modality */
+  embeddingMethod?: { image?: "text" | "multimodal"; video?: "text" | "multimodal" };
 }
 
 // Type guard helpers (inline to avoid circular dependency with config.ts)
@@ -97,7 +97,7 @@ export class KBManager {
   private ingesters: Map<string, Ingester> = new Map();
   private _videoConfig: { endpoint: string; apiKey: string; maxFrames: number; timeoutMs: number };
   private _imageConfig: { endpoint: string; apiKey: string; timeoutMs: number };
-  private _modes: { embeddingMode: "text" | "multimodal"; imageRerankerMode: "text" | "multimodal"; videoRerankerMode: "text" | "multimodal" };
+  private _embeddingMethod: { image: "text" | "multimodal"; video: "text" | "multimodal" };
 
   constructor(opts: MultiKBOptions) {
     this.knowledgePath = opts.knowledgePath;
@@ -121,10 +121,9 @@ export class KBManager {
       apiKey: opts.imageConfig?.apiKey ?? "",
       timeoutMs: opts.imageConfig?.timeoutMs ?? 60_000,
     };
-    this._modes = {
-      embeddingMode: opts.modes?.embeddingMode ?? "text",
-      imageRerankerMode: opts.modes?.imageRerankerMode ?? "text",
-      videoRerankerMode: opts.modes?.videoRerankerMode ?? "text",
+    this._embeddingMethod = {
+      image: opts.embeddingMethod?.image ?? "text",
+      video: opts.embeddingMethod?.video ?? "text",
     };
   }
 
@@ -206,7 +205,7 @@ export class KBManager {
       { chunking: this.embedderConfig.chunking, pdfParser },
       { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs },
       { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs },
-      { embeddingMode: this._modes.embeddingMode, imageRerankerMode: this._modes.imageRerankerMode, videoRerankerMode: this._modes.videoRerankerMode },
+      { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video },
     );
   }
 

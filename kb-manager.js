@@ -41,7 +41,7 @@ export class KBManager {
     ingesters = new Map();
     _videoConfig;
     _imageConfig;
-    _modes;
+    _embeddingMethod;
     constructor(opts) {
         this.knowledgePath = opts.knowledgePath;
         this.dbPath = opts.dbPath;
@@ -64,10 +64,9 @@ export class KBManager {
             apiKey: opts.imageConfig?.apiKey ?? "",
             timeoutMs: opts.imageConfig?.timeoutMs ?? 60_000,
         };
-        this._modes = {
-            embeddingMode: opts.modes?.embeddingMode ?? "text",
-            imageRerankerMode: opts.modes?.imageRerankerMode ?? "text",
-            videoRerankerMode: opts.modes?.videoRerankerMode ?? "text",
+        this._embeddingMethod = {
+            image: opts.embeddingMethod?.image ?? "text",
+            video: opts.embeddingMethod?.video ?? "text",
         };
     }
     // -------------------------------------------------------------------------
@@ -130,7 +129,7 @@ export class KBManager {
             batchSize: 16,
         });
         const pdfParser = { api: "none", endpoint: "", apiKey: "", model: "", params: {} };
-        return new Ingester(store, embedder, { chunking: this.embedderConfig.chunking, pdfParser }, { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs }, { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs }, { embeddingMode: this._modes.embeddingMode, imageRerankerMode: this._modes.imageRerankerMode, videoRerankerMode: this._modes.videoRerankerMode });
+        return new Ingester(store, embedder, { chunking: this.embedderConfig.chunking, pdfParser }, { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs }, { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs }, { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video });
     }
     // -------------------------------------------------------------------------
     // KB CRUD
