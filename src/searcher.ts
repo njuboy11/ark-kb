@@ -240,8 +240,18 @@ export class Searcher {
     const rc = this.config.reranker!;
 
     // Split: media results need a multimodal reranker, text results use cheap text reranker
-    // Image extensions and video extensions (match processImage/store)
-    const isMedia = (r: KBSearchResult) => Searcher.IMG_EXTS.has(r.entry.file_type) || Searcher.VID_EXTS.has(r.entry.file_type);
+    // BUT config.image/video.rerankerMode overrides: "text" mode sends media to text reranker
+    const imageIsText = this.config.image?.rerankerMode === "text";
+    const videoIsText = this.config.video?.rerankerMode === "text";
+    const isMedia = (r: KBSearchResult) => {
+      const ft = r.entry.file_type || "";
+      const isImg = Searcher.IMG_EXTS.has(ft);
+      const isVid = Searcher.VID_EXTS.has(ft);
+      // Text-mode images/videos: treat as text (their chunk_text is VLM summary)
+      if (isImg && imageIsText) return false;
+      if (isVid && videoIsText) return false;
+      return isImg || isVid;
+    };
     const textResults = results.filter(r => !isMedia(r));
     const mediaResults = results.filter(r => isMedia(r));
 

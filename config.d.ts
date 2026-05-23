@@ -58,6 +58,22 @@ export interface ArkKBConfig {
         /** Max frames to send to VLM (default 100) */
         maxFrames?: number;
     };
+    /** "text" = everything through text embedding (VLM summaries for non-text). "multimodal" = media can use multimodal embedding. Default: "text" */
+    embeddingMode?: "text" | "multimodal";
+    image?: {
+        /** "text" = VLM summary → text embedding → text reranker. "multimodal" = direct multimodal embedding → multimodal reranker. Default: "text" */
+        rerankerMode?: "text" | "multimodal";
+    };
+    video?: {
+        /** "text" = VLM summary → text embedding → text reranker. "multimodal" = direct multimodal embedding → multimodal reranker. Default: "text" */
+        rerankerMode?: "text" | "multimodal";
+    };
+    /** Image summarization via VLM (used when image.rerankerMode = "text"). Defaults to videoSummarizer values. */
+    imageSummarizer?: {
+        enabled?: boolean;
+        endpoint?: string;
+        apiKey?: string;
+    };
 }
 export interface ResolvedConfig {
     knowledgePath: string;
@@ -115,6 +131,18 @@ export interface ResolvedConfig {
         endpoint: string;
         apiKey: string;
         maxFrames: number;
+    };
+    embeddingMode: "text" | "multimodal";
+    image: {
+        rerankerMode: "text" | "multimodal";
+    };
+    video: {
+        rerankerMode: "text" | "multimodal";
+    };
+    imageSummarizer: {
+        enabled: boolean;
+        endpoint: string;
+        apiKey: string;
     };
 }
 export declare const DEFAULTS: Omit<ResolvedConfig, "knowledgePath">;

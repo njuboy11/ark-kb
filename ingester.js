@@ -7,7 +7,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { extname, basename, join } from "node:path";
 import { createHash } from "node:crypto";
 import { exposeMediaFile } from "./embedder.js";
-import { summarizeVideo } from "./video.js";
+import { summarizeVideo, extractKeyFrames, summarizeImage } from "./video.js";
 import { dirname } from "node:path";
 // ============================================================================
 // File type detection
@@ -301,11 +301,43 @@ async function processText(filePath, embedder, chunkConfig) {
 // ============================================================================
 // Image processing
 // ============================================================================
-async function processImage(filePath, embedder) {
+async function processImage(filePath, embedder, opts) {
     const base = basename(filePath);
     const fileHash = await hashFile(filePath);
     const now = Date.now();
-    // For multimodal models, expose the actual image data via HTTPS URL or base64
+    const mode = opts?.rerankerMode ?? "text";
+    // Text mode: VLM summary → text embedding
+    if (mode === "text" && opts?.imageConfig?.apiKey) {
+        try {
+            const summary = await summarizeImage(filePath, {
+                apiKey: opts.imageConfig.apiKey,
+                endpoint: opts.imageConfig.endpoint,
+                timeoutMs: opts.imageConfig.timeoutMs ?? 60000,
+            });
+            const chunks = chunkText(summary, { maxTokens: 400, overlapTokens: 50, strategy: "paragraph" });
+            if (chunks.length === 0)
+                chunks.push(summary);
+            const vectors = await embedder.embed(chunks);
+            return chunks.map((text, i) => ({
+                id: `${base}_${i}_${now}`,
+                chunk_text: text,
+                vector: vectors[i],
+                source_path: base,
+                chunk_index: i,
+                total_chunks: chunks.length,
+                images: JSON.stringify([base]),
+                file_type: extname(filePath).slice(1),
+                file_hash: fileHash,
+                created_at: now,
+                updated_at: now,
+            }));
+        }
+        catch (err) {
+            console.error("[Ark KB] Image summary failed for " + filePath + ": " + err.message);
+            // Fall through to filename-only embedding
+        }
+    }
+    // Multimodal mode (or fallback): direct multimodal embedding
     const mediaData = await exposeMediaFile(dirname(filePath), basename(filePath));
     const vectors = await embedder.embed([mediaData || basename(filePath)]);
     return [
@@ -324,7 +356,7 @@ async function processImage(filePath, embedder) {
         },
     ];
 }
-async function processVideo(filePath, embedder, vlmConfig) {
+async function processVideo(filePath, embedder, vlmConfig, rerankerMode = "text") {
     const base = basename(filePath);
     const fileHash = await hashFile(filePath);
     const now = Date.now();
@@ -345,6 +377,36 @@ async function processVideo(filePath, embedder, vlmConfig) {
                 created_at: now,
                 updated_at: now,
             }];
+    }
+    // Multimodal mode: extract key frames → embed each frame directly with multimodal model
+    if (rerankerMode === "multimodal") {
+        try {
+            const { framePaths, frameCount, interval, duration } = await extractKeyFrames(filePath, vlmConfig.maxFrames ?? 20);
+            const entries = [];
+            for (let i = 0; i < framePaths.length; i++) {
+                const frameData = (await readFile(framePaths[i])).toString("base64");
+                const vectors = await embedder.embed([frameData]);
+                entries.push({
+                    id: `${base}_${i}_${now}`,
+                    chunk_text: `[Video frame ${i + 1}/${framePaths.length}]: ${base} (${(duration / framePaths.length).toFixed(1)}s interval)`,
+                    vector: vectors[0],
+                    source_path: base,
+                    chunk_index: i,
+                    total_chunks: framePaths.length,
+                    images: JSON.stringify([`frame_${i}_${base}`]),
+                    file_type: extname(filePath).slice(1),
+                    file_hash: fileHash,
+                    created_at: now,
+                    updated_at: now,
+                });
+            }
+            console.log(`[Ark KB] Video multimodal: ${entries.length} frame chunks (${duration}s, ${frameCount} frames)`);
+            return entries;
+        }
+        catch (err) {
+            console.error("[Ark KB] Video multimodal extraction failed for " + filePath + ": " + err.message);
+            // Fall through to filename-only
+        }
     }
     try {
         const result = await summarizeVideo(filePath, {
@@ -440,15 +502,24 @@ export class Ingester {
     store;
     embedder;
     config;
-    videoConfig = { endpoint: "", apiKey: "", maxFrames: 100 };
-    constructor(store, embedder, config, videoConfig) {
+    videoConfig = { endpoint: "", apiKey: "", maxFrames: 100, timeoutMs: 120_000 };
+    imageConfig = { endpoint: "", apiKey: "", timeoutMs: 60_000 };
+    embeddingMode = "text";
+    imageRerankerMode = "text";
+    videoRerankerMode = "text";
+    constructor(store, embedder, config, videoConfig, imageConfig, modes) {
         this.store = store;
         this.embedder = embedder;
         this.config = config;
         if (videoConfig)
-            this.videoConfig = videoConfig;
-        if (config._videoConfig)
-            this.videoConfig = config._videoConfig;
+            this.videoConfig = { ...this.videoConfig, ...videoConfig };
+        if (imageConfig)
+            this.imageConfig = { ...this.imageConfig, ...imageConfig };
+        if (modes) {
+            this.embeddingMode = modes.embeddingMode ?? "text";
+            this.imageRerankerMode = modes.imageRerankerMode ?? "text";
+            this.videoRerankerMode = modes.videoRerankerMode ?? "text";
+        }
     }
     /**
      * Ingest a single file: detect type → hash → chunk → embed → upsert.
@@ -463,8 +534,10 @@ export class Ingester {
         }
         // Check if the embedding model supports this file type
         const modality = kind === "pdf" ? "text" : kind; // PDFs are text after MinerU extraction
-        const skipVideo = kind === "video" && this.videoConfig.apiKey; // Video: use VLM, embed summary as text
-        if (!skipVideo && !this.embedder.supportsModality(modality)) {
+        const videoTextMode = kind === "video" && this.videoConfig.apiKey && this.videoRerankerMode === "text"; // Text-mode video: VLM summary → text
+        const videoMMMode = kind === "video" && this.videoRerankerMode === "multimodal"; // Multimodal video: direct frame embedding
+        const skipModalityCheck = videoTextMode || videoMMMode; // Videos always proceed (text mode via VLM, mm mode via frames)
+        if (!skipModalityCheck && !this.embedder.supportsModality(modality)) {
             console.log(`[Ark KB] Skipping ${kind} file (model does not support ${modality}): ${filePath}`);
             return { entries: 0, source: basename(filePath), skipped: true };
         }
@@ -495,10 +568,13 @@ export class Ingester {
                     entries = await processText(filePath, this.embedder, this.config.chunking);
                     break;
                 case "image":
-                    entries = await processImage(filePath, this.embedder);
+                    entries = await processImage(filePath, this.embedder, {
+                        imageConfig: this.imageConfig,
+                        rerankerMode: this.imageRerankerMode,
+                    });
                     break;
                 case "video":
-                    entries = await processVideo(filePath, this.embedder, this.videoConfig);
+                    entries = await processVideo(filePath, this.embedder, this.videoConfig, this.videoRerankerMode);
                     break;
                 case "pdf":
                     entries = await processPdf(filePath, this.embedder, this.config.chunking, this.config.pdfParser);

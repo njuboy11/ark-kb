@@ -2,7 +2,7 @@
  * Ark KB — Configuration Types
  */
 import { existsSync, readFileSync } from "node:fs";
-import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint } from "./embedder.js";
+import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint, resolveEmbeddingModalities } from "./embedder.js";
 export const DEFAULTS = {
     storage: {
         dbPath: "~/.ark-kb/lancedb",
@@ -54,6 +54,14 @@ export const DEFAULTS = {
         apiKey: "",
         maxFrames: 100,
     },
+    embeddingMode: "text",
+    image: { rerankerMode: "text" },
+    video: { rerankerMode: "text" },
+    imageSummarizer: {
+        enabled: false,
+        endpoint: "https://api.minimaxi.com/v1/coding_plan/vlm",
+        apiKey: "",
+    },
 };
 // ============================================================================
 // Auto-detect API protocol from endpoint URL
@@ -103,7 +111,7 @@ export function validateConfig(raw) {
     if (c.knowledgePath !== undefined && typeof c.knowledgePath !== "string") {
         errors.push("knowledgePath must be a string");
     }
-    for (const section of ["storage", "embedding", "reranker", "pdfParser", "search", "chunking", "watcher", "videoSummarizer"]) {
+    for (const section of ["storage", "embedding", "reranker", "pdfParser", "search", "chunking", "watcher", "videoSummarizer", "imageSummarizer"]) {
         if (c[section] !== undefined && (typeof c[section] !== "object" || c[section] === null)) {
             errors.push(`${section} must be an object`);
         }
@@ -181,6 +189,55 @@ export function validateConfig(raw) {
         }
         if (w.debounceMs !== undefined && typeof w.debounceMs !== "number") {
             errors.push("watcher.debounceMs must be a number");
+        }
+    }
+    // embeddingMode
+    if (c.embeddingMode !== undefined && !["text", "multimodal"].includes(c.embeddingMode)) {
+        errors.push("embeddingMode must be 'text' or 'multimodal'");
+    }
+    // image.rerankerMode
+    if (c.image) {
+        const img = c.image;
+        if (img.rerankerMode !== undefined && !["text", "multimodal"].includes(img.rerankerMode)) {
+            errors.push("image.rerankerMode must be 'text' or 'multimodal'");
+        }
+    }
+    // video.rerankerMode
+    if (c.video) {
+        const vid = c.video;
+        if (vid.rerankerMode !== undefined && !["text", "multimodal"].includes(vid.rerankerMode)) {
+            errors.push("video.rerankerMode must be 'text' or 'multimodal'");
+        }
+    }
+    // ── Cross-field validation ────────────────────────────────
+    const embMode = c.embeddingMode ?? "text";
+    const imgMode = c.image?.rerankerMode ?? "text";
+    const vidMode = c.video?.rerankerMode ?? "text";
+    const needsMultimodalRerank = embMode === "multimodal" && (imgMode === "multimodal" || vidMode === "multimodal");
+    if (needsMultimodalRerank) {
+        // embedding model must support image modality
+        const e = c.embedding;
+        if (e?.model) {
+            // Try all known APIs to find the model preset (user may not have endpoint configured)
+            let modalities = [];
+            for (const api of ["siliconflow", "dashscope", "openai"]) {
+                const m = resolveEmbeddingModalities(api, e.model);
+                if (m.length > 1 || m[0] !== "text") {
+                    modalities = m;
+                    break;
+                }
+            }
+            if (modalities.length === 0)
+                modalities = resolveEmbeddingModalities("siliconflow", e.model);
+            if (!modalities.includes("image")) {
+                errors.push(`Embedding model "${e.model}" does not support image modality. Use a multimodal model (e.g. Qwen/Qwen3-VL-Embedding-8B) when image/video uses multimodal reranker mode.`);
+            }
+        }
+        // multimodal reranker must be configured
+        const r = c.reranker;
+        const mm = r?.multimodal;
+        if (!mm || !mm.apiKey) {
+            errors.push("reranker.multimodal must be configured (model + apiKey) when image or video uses multimodal reranker mode");
         }
     }
     return errors;
@@ -265,6 +322,18 @@ export function resolveConfig(raw) {
             endpoint: raw.videoSummarizer?.endpoint ?? DEFAULTS.videoSummarizer.endpoint,
             apiKey: raw.videoSummarizer?.apiKey ?? DEFAULTS.videoSummarizer.apiKey,
             maxFrames: raw.videoSummarizer?.maxFrames ?? DEFAULTS.videoSummarizer.maxFrames,
+        },
+        embeddingMode: raw.embeddingMode ?? DEFAULTS.embeddingMode,
+        image: {
+            rerankerMode: raw.image?.rerankerMode ?? DEFAULTS.image.rerankerMode,
+        },
+        video: {
+            rerankerMode: raw.video?.rerankerMode ?? DEFAULTS.video.rerankerMode,
+        },
+        imageSummarizer: {
+            enabled: raw.imageSummarizer?.enabled ?? raw.videoSummarizer?.enabled ?? DEFAULTS.imageSummarizer.enabled,
+            endpoint: raw.imageSummarizer?.endpoint ?? raw.videoSummarizer?.endpoint ?? DEFAULTS.imageSummarizer.endpoint,
+            apiKey: raw.imageSummarizer?.apiKey ?? raw.videoSummarizer?.apiKey ?? DEFAULTS.imageSummarizer.apiKey,
         },
     };
 }

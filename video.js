@@ -1,12 +1,14 @@
 /**
  * Ark KB — Video Processor
  * ffmpeg frame extraction + tiling → MiniMax VLM → text summary → embedding
+ * Also supports multimodal mode: extract key frames for direct multimodal embedding.
  */
 import { spawn, execSync } from "node:child_process";
 import { readFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { readdirSync } from "node:fs";
 // ============================================================================
 // Public API
 // ============================================================================
@@ -40,6 +42,85 @@ export async function summarizeVideo(filePath, config) {
     finally {
         await rm(tmpDir, { recursive: true, force: true }).catch(() => { });
     }
+}
+/**
+ * Extract key frames for multimodal embedding (no VLM summary).
+ * Returns fewer frames than text mode since each frame gets embedded individually.
+ */
+export async function extractKeyFrames(filePath, maxFrames) {
+    const info = await probeVideo(filePath);
+    const cappedFrames = Math.min(maxFrames, 20); // multimodal mode: max 20 frames to avoid excessive chunks
+    const { interval, frameCount } = adaptiveSampling(info.duration, cappedFrames);
+    const resolution = 360;
+    const tmpDir = join(tmpdir(), `ark-video-mm-${randomUUID()}`);
+    await mkdir(tmpDir, { recursive: true });
+    try {
+        // Step 0: Compress to proxy
+        const proxyPath = join(tmpDir, "proxy.mp4");
+        await compressToProxy(filePath, proxyPath, resolution);
+        // Step 1: Extract frames from proxy
+        await new Promise((resolve, reject) => {
+            const proc = spawn("ffmpeg", [
+                "-y",
+                "-i", proxyPath,
+                "-an",
+                "-vf", `fps=1/${interval}`,
+                "-q:v", "50",
+                join(tmpDir, "frame_%04d.jpg"),
+            ], { stdio: ["ignore", "pipe", "pipe"] });
+            let stderr = "";
+            proc.stderr.on("data", (d) => { stderr += d.toString(); });
+            proc.on("close", (code) => {
+                if (code === 0)
+                    resolve();
+                else
+                    reject(new Error(`frame extract exit ${code}: ${stderr.slice(-200)}`));
+            });
+            proc.on("error", reject);
+        });
+        // Collect frame paths
+        const framePaths = readdirSync(tmpDir)
+            .filter(f => f.startsWith("frame_") && f.endsWith(".jpg"))
+            .sort()
+            .map(f => join(tmpDir, f));
+        console.log(`[ark-video] multimodal: ${framePaths.length} key frames in ${info.duration}s video`);
+        return { framePaths, frameCount, interval, duration: info.duration };
+    }
+    catch (err) {
+        // Clean up on error
+        await rm(tmpDir, { recursive: true, force: true }).catch(() => { });
+        throw err;
+    }
+}
+/**
+ * Summarize a single image via VLM (used when image.rerankerMode = "text").
+ */
+export async function summarizeImage(imagePath, config) {
+    const base64 = (await readFile(imagePath)).toString("base64");
+    const prompt = "请用100-200字中文概括这张图片的内容，包括主题、主要元素、场景等。";
+    const body = JSON.stringify({
+        prompt,
+        image_url: `data:image/jpeg;base64,${base64}`,
+    });
+    const response = await fetch(config.endpoint, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${config.apiKey}`,
+            "MM-API-Source": "ark-kb",
+        },
+        signal: AbortSignal.timeout(config.timeoutMs),
+        body,
+    });
+    if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        throw new Error(`MiniMax VLM error (${response.status}): ${errText}`);
+    }
+    const data = await response.json();
+    if (data.base_resp?.status_code !== 0) {
+        throw new Error(`MiniMax VLM failed: ${data.base_resp?.status_msg ?? "unknown"}`);
+    }
+    return data.content ?? "";
 }
 // ============================================================================
 // Video probing
@@ -77,21 +158,22 @@ function adaptiveSampling(duration, maxFrames) {
     }
     return { interval, frameCount };
 }
-async function extractAndTile(filePath, outputDir, opts) {
-    console.log(`[ark-video] Compressing to ${opts.resolution}p proxy…`);
+// ============================================================================
+// Video proxy compression (shared by text and multimodal modes)
+// ============================================================================
+async function compressToProxy(inputPath, outputPath, resolution) {
+    console.log(`[ark-video] Compressing to ${resolution}p proxy…`);
     const t0 = Date.now();
-    // Step 0: Compress video to low-res proxy (avoid expensive full-res decode per frame)
-    const proxyPath = join(outputDir, "proxy.mp4");
     await new Promise((resolve, reject) => {
         const proc = spawn("ffmpeg", [
             "-y",
-            "-i", filePath,
-            "-vf", `scale=${opts.resolution}:-2`,
+            "-i", inputPath,
+            "-vf", `scale=${resolution}:-2`,
             "-preset", "ultrafast",
             "-crf", "30",
-            "-an", // No audio
+            "-an",
             "-tune", "fastdecode",
-            proxyPath,
+            outputPath,
         ], { stdio: ["ignore", "pipe", "pipe"] });
         let stderr = "";
         proc.stderr.on("data", (d) => { stderr += d.toString(); });
@@ -104,7 +186,11 @@ async function extractAndTile(filePath, outputDir, opts) {
         proc.on("error", reject);
     });
     console.log(`[ark-video] Proxy done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-    // Step 1: Extract frames from proxy (no scale filter needed, already 360p)
+}
+async function extractAndTile(filePath, outputDir, opts) {
+    const proxyPath = join(outputDir, "proxy.mp4");
+    await compressToProxy(filePath, proxyPath, opts.resolution);
+    // Step 1: Extract frames from proxy
     const t1 = Date.now();
     await new Promise((resolve, reject) => {
         const frameFilter = `fps=1/${opts.interval}`;

@@ -3,7 +3,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint } from "./embedder.js";
+import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint, resolveEmbeddingModalities } from "./embedder.js";
 
 // ============================================================================
 // Top-level config (what users set under plugins.entries["@njuboy11/ark-kb"].config)
@@ -65,6 +65,22 @@ export interface ArkKBConfig {
     apiKey?: string;
     /** Max frames to send to VLM (default 100) */
     maxFrames?: number;
+  };
+  /** "text" = everything through text embedding (VLM summaries for non-text). "multimodal" = media can use multimodal embedding. Default: "text" */
+  embeddingMode?: "text" | "multimodal";
+  image?: {
+    /** "text" = VLM summary → text embedding → text reranker. "multimodal" = direct multimodal embedding → multimodal reranker. Default: "text" */
+    rerankerMode?: "text" | "multimodal";
+  };
+  video?: {
+    /** "text" = VLM summary → text embedding → text reranker. "multimodal" = direct multimodal embedding → multimodal reranker. Default: "text" */
+    rerankerMode?: "text" | "multimodal";
+  };
+  /** Image summarization via VLM (used when image.rerankerMode = "text"). Defaults to videoSummarizer values. */
+  imageSummarizer?: {
+    enabled?: boolean;
+    endpoint?: string;
+    apiKey?: string;
   };
 }
 
@@ -129,6 +145,14 @@ export interface ResolvedConfig {
     apiKey: string;
     maxFrames: number;
   };
+  embeddingMode: "text" | "multimodal";
+  image: { rerankerMode: "text" | "multimodal" };
+  video: { rerankerMode: "text" | "multimodal" };
+  imageSummarizer: {
+    enabled: boolean;
+    endpoint: string;
+    apiKey: string;
+  };
 }
 
 export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
@@ -182,6 +206,14 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
     apiKey: "",
     maxFrames: 100,
   },
+  embeddingMode: "text" as const,
+  image: { rerankerMode: "text" as const },
+  video: { rerankerMode: "text" as const },
+  imageSummarizer: {
+    enabled: false,
+    endpoint: "https://api.minimaxi.com/v1/coding_plan/vlm",
+    apiKey: "",
+  },
 };
 
 // ============================================================================
@@ -232,7 +264,7 @@ export function validateConfig(raw: unknown): string[] {
     errors.push("knowledgePath must be a string");
   }
 
-  for (const section of ["storage", "embedding", "reranker", "pdfParser", "search", "chunking", "watcher", "videoSummarizer"]) {
+  for (const section of ["storage", "embedding", "reranker", "pdfParser", "search", "chunking", "watcher", "videoSummarizer", "imageSummarizer"]) {
     if (c[section] !== undefined && (typeof c[section] !== "object" || c[section] === null)) {
       errors.push(`${section} must be an object`);
     }
@@ -316,6 +348,56 @@ export function validateConfig(raw: unknown): string[] {
     }
     if (w.debounceMs !== undefined && typeof w.debounceMs !== "number") {
       errors.push("watcher.debounceMs must be a number");
+    }
+  }
+
+  // embeddingMode
+  if (c.embeddingMode !== undefined && !["text", "multimodal"].includes(c.embeddingMode as string)) {
+    errors.push("embeddingMode must be 'text' or 'multimodal'");
+  }
+
+  // image.rerankerMode
+  if (c.image) {
+    const img = c.image as Record<string, unknown>;
+    if (img.rerankerMode !== undefined && !["text", "multimodal"].includes(img.rerankerMode as string)) {
+      errors.push("image.rerankerMode must be 'text' or 'multimodal'");
+    }
+  }
+
+  // video.rerankerMode
+  if (c.video) {
+    const vid = c.video as Record<string, unknown>;
+    if (vid.rerankerMode !== undefined && !["text", "multimodal"].includes(vid.rerankerMode as string)) {
+      errors.push("video.rerankerMode must be 'text' or 'multimodal'");
+    }
+  }
+
+  // ── Cross-field validation ────────────────────────────────
+  const embMode = (c.embeddingMode as string) ?? "text";
+  const imgMode = (c.image as any)?.rerankerMode ?? "text";
+  const vidMode = (c.video as any)?.rerankerMode ?? "text";
+  const needsMultimodalRerank = embMode === "multimodal" && (imgMode === "multimodal" || vidMode === "multimodal");
+
+  if (needsMultimodalRerank) {
+    // embedding model must support image modality
+    const e = c.embedding as Record<string, unknown> | undefined;
+    if (e?.model) {
+      // Try all known APIs to find the model preset (user may not have endpoint configured)
+      let modalities: string[] = [];
+      for (const api of ["siliconflow", "dashscope", "openai"]) {
+        const m = resolveEmbeddingModalities(api, e.model as string);
+        if (m.length > 1 || m[0] !== "text") { modalities = m; break; }
+      }
+      if (modalities.length === 0) modalities = resolveEmbeddingModalities("siliconflow", e.model as string);
+      if (!modalities.includes("image")) {
+        errors.push(`Embedding model "${e.model}" does not support image modality. Use a multimodal model (e.g. Qwen/Qwen3-VL-Embedding-8B) when image/video uses multimodal reranker mode.`);
+      }
+    }
+    // multimodal reranker must be configured
+    const r = c.reranker as Record<string, unknown> | undefined;
+    const mm = r?.multimodal as Record<string, unknown> | undefined;
+    if (!mm || !mm.apiKey) {
+      errors.push("reranker.multimodal must be configured (model + apiKey) when image or video uses multimodal reranker mode");
     }
   }
 
@@ -403,6 +485,18 @@ export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
       endpoint: raw.videoSummarizer?.endpoint ?? DEFAULTS.videoSummarizer.endpoint,
       apiKey: raw.videoSummarizer?.apiKey ?? DEFAULTS.videoSummarizer.apiKey,
       maxFrames: raw.videoSummarizer?.maxFrames ?? DEFAULTS.videoSummarizer.maxFrames,
+    },
+    embeddingMode: raw.embeddingMode ?? (DEFAULTS.embeddingMode as "text" | "multimodal"),
+    image: {
+      rerankerMode: raw.image?.rerankerMode ?? (DEFAULTS.image.rerankerMode as "text" | "multimodal"),
+    },
+    video: {
+      rerankerMode: raw.video?.rerankerMode ?? (DEFAULTS.video.rerankerMode as "text" | "multimodal"),
+    },
+    imageSummarizer: {
+      enabled: raw.imageSummarizer?.enabled ?? raw.videoSummarizer?.enabled ?? DEFAULTS.imageSummarizer.enabled,
+      endpoint: raw.imageSummarizer?.endpoint ?? raw.videoSummarizer?.endpoint ?? DEFAULTS.imageSummarizer.endpoint,
+      apiKey: raw.imageSummarizer?.apiKey ?? raw.videoSummarizer?.apiKey ?? DEFAULTS.imageSummarizer.apiKey,
     },
   };
 }

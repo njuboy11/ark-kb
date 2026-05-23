@@ -49,10 +49,22 @@ export class ArkKB {
             endpoint: this.config.videoSummarizer.endpoint,
             apiKey: this.config.videoSummarizer.apiKey,
             maxFrames: this.config.videoSummarizer.maxFrames,
+            timeoutMs: 120_000,
+        }, {
+            endpoint: this.config.imageSummarizer.endpoint,
+            apiKey: this.config.imageSummarizer.apiKey,
+            timeoutMs: 60_000,
+        }, {
+            embeddingMode: this.config.embeddingMode,
+            imageRerankerMode: this.config.image.rerankerMode,
+            videoRerankerMode: this.config.video.rerankerMode,
         });
         this.searcher = new Searcher(this.store, this.embedder, this.config.knowledgePath, {
             search: this.config.search,
             reranker: this.config.reranker,
+            embeddingMode: this.config.embeddingMode,
+            image: this.config.image,
+            video: this.config.video,
         });
         this.watcher = new FileWatcher({
             enabled: this.config.watcher.enabled,
