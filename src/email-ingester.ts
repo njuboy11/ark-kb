@@ -267,6 +267,10 @@ export class EmailIngester {
     let targetKBs: string[];
     try {
       targetKBs = await this.routeEmail(email.subject, email.body, email.attachments, kbNames);
+      if (targetKBs.length === 0) {
+        console.log(`[EmailIngester] Skipping "${email.subject}" — LLM returned ignore`);
+        return;
+      }
     } catch (err: any) {
       console.error("[EmailIngester] routeEmail error:", err.message);
       targetKBs = [this.kbManager.getDefaultKBName() || kbNames[0]];
@@ -370,11 +374,18 @@ export class EmailIngester {
       try {
         const systemPrompt = `你是一个知识库路由助手。当前可用知识库：${kbList}。
 请判断这封邮件适合放入哪些知识库。如果邮件涉及多个领域，可以返回多个知识库。
-只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"] 或 ["none"], "reason": "简短说明"}`;
+如果这封邮件明显是垃圾邮件、广告邮件、推销邮件或无关邮件，请返回 "ignore" 而不是 "none"。
+只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"] 或 ["none"] 或 ["ignore"], "reason": "简短说明"}`;
         const userContent = `主题：${subject}\n正文：${body}`;
         const response = await this.askLLM(systemPrompt, userContent);
         const parsed = this._parseLLMJson(response);
-        const matched = (parsed?.kbNames || []).filter((n: string) => n !== "none" && kbNames.includes(n));
+        const names = parsed?.kbNames || [];
+        // Handle "ignore" — skip this email entirely (spam/ad)
+        if (names.length === 1 && names[0] === "ignore") {
+          console.log(`[EmailIngester] Stage1 LLM skipped (spam/ad): "${subject}"`);
+          return []; // Empty array → caller will skip
+        }
+        const matched = names.filter((n: string) => n !== "none" && n !== "ignore" && kbNames.includes(n));
         if (matched.length > 0) {
           console.log(`[EmailIngester] Stage1 LLM routed "${subject}" → ${matched.join(", ")}`);
           return matched;
