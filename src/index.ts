@@ -658,21 +658,30 @@ export function register(api: {
     console.log("[Ark KB] Loading config from standalone file:", standalonePath);
     arkConfig = fileResult.config;
   } else {
-    const examplePath = join(pluginDir, "plugin-config.example.json");
-    if (existsSync(examplePath)) {
-      console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
-      copyFileSync(examplePath, standalonePath);
-      console.log("[Ark KB] Created", standalonePath, "— edit this file to configure.");
-      const retry = loadConfigFromFile(standalonePath);
-      if (retry.config) {
-        arkConfig = retry.config;
+    // Never auto-overwrite an existing config file — it may contain real credentials
+    // that just happen to be in a format the loader can't parse right now.
+    if (!existsSync(standalonePath)) {
+      const examplePath = join(pluginDir, "plugin-config.example.json");
+      if (existsSync(examplePath)) {
+        console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
+        copyFileSync(examplePath, standalonePath);
+        console.log("[Ark KB] Created", standalonePath, "— edit this file to configure.");
+        const retry = loadConfigFromFile(standalonePath);
+        if (retry.config) {
+          arkConfig = retry.config;
+        } else {
+          console.log("[Ark KB] Example config failed to load, falling back to openclaw.json");
+          arkConfig = (api.pluginConfig ?? api.config ?? {}) as ArkKBConfig;
+          fromOpenClaw = true;
+        }
       } else {
-        console.log("[Ark KB] Falling back to openclaw.json");
+        console.log("[Ark KB] No config files found, falling back to openclaw.json");
         arkConfig = (api.pluginConfig ?? api.config ?? {}) as ArkKBConfig;
         fromOpenClaw = true;
       }
     } else {
-      console.log("[Ark KB] No config files found, falling back to openclaw.json");
+      console.log("[Ark KB] Config file exists but failed to parse:", standalonePath);
+      console.log("[Ark KB] Falling back to openclaw.json — fix plugin-config.json to restore");
       arkConfig = (api.pluginConfig ?? api.config ?? {}) as ArkKBConfig;
       fromOpenClaw = true;
     }

@@ -67,5 +67,15 @@
     "enabled": true,
     "endpoint": "https://api.minimaxi.com/v1/coding_plan/vlm",
     "apiKey": "YOUR_API_KEY_HERE"
+  },
+  "emailIngester": {
+    "enabled": false,
+    "host": "imap.example.com",
+    "port": 993,
+    "tls": true,
+    "user": "your-email@example.com",
+    "password": "your-password",
+    "scanIntervalMs": 300000,
+    "maxRetries": 2
   }
 }
