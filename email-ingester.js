@@ -129,8 +129,14 @@ export class EmailIngester {
                         }
                     }
                 }
-                // Step 3: Regular scan since lastProcessedTime
-                const criteria = { since: new Date(sinceTime) };
+                // Step 3: Regular scan — use UID > lastProcessedUID when available
+                let criteria;
+                if (this.state.lastProcessedUID > 0) {
+                    criteria = { uid: `${this.state.lastProcessedUID + 1}:*` };
+                }
+                else {
+                    criteria = { since: new Date(sinceTime) };
+                }
                 const seqNums = await this.imapClient.search(criteria);
                 const matches = Array.isArray(seqNums) ? seqNums : [];
                 console.log(`[EmailIngester] search criteria:`, JSON.stringify(criteria), `→ ${matches.length} matches`);
@@ -170,6 +176,9 @@ export class EmailIngester {
                         if (email.uid > maxProcessedUID) {
                             maxProcessedUID = email.uid;
                         }
+                        if (email.uid > maxProcessedUID) {
+                            maxProcessedUID = email.uid;
+                        }
                         if (email.internalDate > maxProcessedInternalDate) {
                             maxProcessedInternalDate = email.internalDate;
                         }
@@ -181,16 +190,14 @@ export class EmailIngester {
                         // DO NOT advance timestamp — failed emails will be retried next scan
                     }
                 }
-                // Only advance lastProcessedTime for SUCCESSFULLY processed emails.
-                // Failed emails stay behind the cursor → retried next scan.
+                // Advance UID cursor past the latest processed email
+                // UID-based search (next scan) won't re-process these emails
+                if (maxProcessedUID > this.state.lastProcessedUID) {
+                    this.state.lastProcessedUID = maxProcessedUID;
+                }
+                // Update lastProcessedTime (for backward compat / initial SINCE fallback)
                 if (count > 0 && maxProcessedInternalDate !== sinceTime) {
                     this.state.lastProcessedTime = maxProcessedInternalDate;
-                }
-                else if (count > 0) {
-                    // All emails older than sinceTime → advance to now so next scan doesn't re-process
-                    // IMAP SINCE is date-only — advance to now so next scan skips processed
-                    // emails (their INTERNALDATEs are in the past) but catches new arrivals
-                    this.state.lastProcessedTime = new Date().toISOString();
                 }
                 // If nothing was processed → keep old state → all emails retried
                 this.state.lastScan = Date.now();
@@ -565,6 +572,7 @@ export class EmailIngester {
                     lastProcessedTime: loaded.lastProcessedTime ?? new Date(0).toISOString(),
                     lastScan: loaded.lastScan ?? 0,
                     totalProcessed: loaded.totalProcessed ?? 0,
+                    lastProcessedUID: loaded.lastProcessedUID ?? 0,
                     failed: loaded.failed ?? [],
                 };
             }
