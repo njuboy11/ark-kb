@@ -256,7 +256,7 @@ export class EmailIngester {
         const downloadedPaths = [];
         for (const att of email.attachments) {
             let retries = 0;
-            while (retries <= this.config.maxRetries) {
+            while (retries < this.config.maxRetries) {
                 try {
                     const filePath = path.join(tmpDir, att.filename);
                     fs.writeFileSync(filePath, att.data);
@@ -265,7 +265,7 @@ export class EmailIngester {
                 }
                 catch (err) {
                     retries++;
-                    if (retries > this.config.maxRetries) {
+                    if (retries >= this.config.maxRetries) {
                         this._recordFailure(email.uid, email.messageId, `Failed to write attachment ${att.filename}: ${err.message}`, email.internalDate);
                     }
                     else {
@@ -296,7 +296,7 @@ export class EmailIngester {
                     }
                 }
                 let retries = 0;
-                while (retries <= this.config.maxRetries) {
+                while (retries < this.config.maxRetries) {
                     try {
                         await this.kbManager.ingestByPath(destPath);
                         this.state.totalProcessed++;
@@ -304,10 +304,10 @@ export class EmailIngester {
                     }
                     catch (err) {
                         retries++;
-                        if (retries > this.config.maxRetries) {
+                        if (retries >= this.config.maxRetries) {
                             this._recordFailure(email.uid, email.messageId, `Failed to ingest ${path.basename(destPath)}: ${err.message}`, email.internalDate);
                             try {
-                                fs.unlinkSync(destPath);
+                                fs.unlinkSync(filePath);
                             }
                             catch { }
                         }
