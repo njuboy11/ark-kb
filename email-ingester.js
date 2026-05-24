@@ -192,8 +192,14 @@ export class EmailIngester {
                 }
                 // Always advance the timestamp to the latest scanned email, even if
                 // some failed. Individual retries are handled by UID in the next scan.
+                // Always advance timestamp past the scan window
+                // If no email had a later internalDate, advance to now
                 if (maxProcessedInternalDate !== sinceTime) {
                     this.state.lastProcessedTime = maxProcessedInternalDate;
+                } else {
+                    // No newer emails — bump to current time so next scan doesn't re-process
+                    this.state.lastProcessedTime = new Date().toISOString();
+                    console.log(`[EmailIngester] All emails older than ${sinceTime} — advancing timestamp to now`);
                 }
                 // If nothing was processed → keep old timestamp → all emails retried
                 this.state.lastScan = Date.now();
