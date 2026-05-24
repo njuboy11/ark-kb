@@ -107,8 +107,10 @@ export class EmailIngester {
                         const failedSeqNums = await this.imapClient.search({ uid: failedUids });
                         if (Array.isArray(failedSeqNums) && failedSeqNums.length > 0) {
                             for (const seq of failedSeqNums) {
-                                if (seq > 1000)
+                                if (seq > 1000) {
+                                    console.warn(`[EmailIngester] Skipping seq ${seq} — exceeds 1000 cap; use IMAP folder cleanup or increase limit`);
                                     break;
+                                }
                                 console.log(`[EmailIngester] Fetching failed seq ${seq}…`);
                                 const msg = await this.imapClient.fetchOne(seq, {
                                     uid: true,
@@ -340,7 +342,7 @@ export class EmailIngester {
         const regexMatched = [];
         for (const kb of kbNames) {
             const escaped = kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const pattern = new RegExp(escaped, 'i');
+            const pattern = new RegExp(`\\b${escaped}\\b`, 'i');
             if (pattern.test(subject) || pattern.test(body)) {
                 regexMatched.push(kb);
             }

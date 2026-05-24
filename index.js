@@ -281,12 +281,18 @@ export class ArkKB {
                     const rerankResults = data.results ?? [];
                     const minScore = options?.rerankerMinScore ?? rc2.minScore ?? 0;
                     const topN = options?.resultCount ?? this.config.search.resultCount;
-                    const indices = new Set(rerankResults.filter((r2) => r2.relevance_score >= minScore).map((r2) => r2.index));
+                    // Build index→score map from reranker results
+                    const scoreMap = new Map();
+                    for (const r2 of rerankResults) {
+                        if ((r2.relevance_score ?? 0) >= minScore) {
+                            scoreMap.set(r2.index, r2.relevance_score ?? 0);
+                        }
+                    }
                     return results
-                        .filter((_, i) => indices.has(i))
+                        .filter((_, i) => scoreMap.has(i))
                         .slice(0, topN)
                         .map(r => ({
-                        score: r.score,
+                        score: scoreMap.get(results.indexOf(r)) ?? r.score,
                         chunk_text: r.entry.chunk_text?.substring(0, 500) ?? "",
                         source_path: r.entry.source_path ?? "",
                         chunk_index: r.entry.chunk_index ?? 0,
