@@ -129,6 +129,11 @@ export class EmailIngester {
   // -------------------------------------------------------------------------
 
   async scan(): Promise<void> {
+    // Mutex: skip if previous scan is still in progress
+    if (this._scanning) {
+      return;
+    }
+    this._scanning = true;
     if (!this.imapClient) {
       try {
         await this._connect();
