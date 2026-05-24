@@ -126,9 +126,9 @@ export class ArkKB {
     // Init
     // -------------------------------------------------------------------------
     async init(api) {
-        console.log("[Ark KB] init() called");
         if (this._initialized)
             return;
+        this._initialized = true; // Set immediately to prevent race
         // KBManager.init() handles auto-migration + scanning + store init
         await this.kbManager.init();
         // Build default searcher (used when no specific KB is targeted)
@@ -187,7 +187,6 @@ export class ArkKB {
         }
         // Initialize email auto-ingester (api param only used in plugin mode)
         await this._initEmailIngester(api);
-        this._initialized = true;
         console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
     }
     // -------------------------------------------------------------------------
@@ -459,7 +458,6 @@ export class ArkKB {
     }
     _emailIngesterInitialized = false;
     async _initEmailIngester(api) {
-        console.log("[Ark KB] _initEmailIngester() called");
         if (this._emailIngesterInitialized)
             return;
         if (!this.config.emailIngester.enabled)

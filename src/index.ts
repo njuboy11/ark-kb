@@ -156,8 +156,8 @@ export class ArkKB {
   // -------------------------------------------------------------------------
 
   async init(api?: any): Promise<void> {
-    console.log("[Ark KB] init() called");
     if (this._initialized) return;
+    this._initialized = true;  // Set immediately to prevent race
 
     // KBManager.init() handles auto-migration + scanning + store init
     await this.kbManager.init();
@@ -224,7 +224,6 @@ export class ArkKB {
     // Initialize email auto-ingester (api param only used in plugin mode)
     await this._initEmailIngester(api);
 
-    this._initialized = true;
     console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
   }
 
@@ -542,7 +541,6 @@ export class ArkKB {
   private _emailIngesterInitialized = false;
 
   private async _initEmailIngester(api?: any): Promise<void> {
-    console.log("[Ark KB] _initEmailIngester() called");
     if (this._emailIngesterInitialized) return;
     if (!this.config.emailIngester.enabled) return;
 
