@@ -94,6 +94,7 @@ export class EmailIngester {
     if (this._initialized) {
       return; // Already initialized
     }
+    this._initialized = true;  // Set immediately to prevent concurrent init
     if (!this.config.enabled) {
       console.log("[EmailIngester] Disabled — skipping");
       return;
@@ -129,7 +130,6 @@ export class EmailIngester {
       this.scan().catch(err => console.error("[EmailIngester] Scan error:", err.message));
     }, this.config.scanIntervalMs);
 
-    this._initialized = true;
     console.log(`[EmailIngester] Started — scanning ${this.config.host} every ${this.config.scanIntervalMs}ms`);
   }
 
