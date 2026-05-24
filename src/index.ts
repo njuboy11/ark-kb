@@ -1,3 +1,4 @@
+import path from "node:path";
 /**
  * Ark KB — Main Entry
  * Wires together all components with nested config support.
@@ -178,9 +179,9 @@ export class ArkKB {
       },
     );
 
+    const kp = this.config.knowledgePath;
     // Initialize failed list path (used by watcher callback)
     this._failedListPath = path.join(kp, ".ark-kb-failed.json");
-    const kp = this.config.knowledgePath;
     let total = 0;
     let files = 0;
 
