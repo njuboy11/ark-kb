@@ -4,7 +4,7 @@
  * Handles text, images, and PDFs with configurable chunking.
  */
 import { readFile, readdir } from "node:fs/promises";
-import { extname, basename, join } from "node:path";
+import { extname, basename, join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { exposeMediaFile } from "./embedder.js";
 import { summarizeVideo, summarizeImage } from "./video.js";
@@ -583,6 +583,9 @@ export class Ingester {
         if (entries.length === 0) {
             return { entries: 0, source: base, skipped: false };
         }
+        // Fix source_path to be relative to knowledgePath (for multi-KB media resolution)
+        const relativePath = relative(this.knowledgePath, filePath);
+        entries = entries.map((e) => ({ ...e, source_path: relativePath }));
         await this.store.insert(entries);
         console.log(`[Ark KB] Indexed: ${base} (${entries.length} chunks)`);
         return { entries: entries.length, source: base, skipped: false };

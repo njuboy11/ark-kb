@@ -691,6 +691,10 @@ export class Ingester {
       return { entries: 0, source: base, skipped: false };
     }
 
+    // Fix source_path to be relative to knowledgePath (for multi-KB media resolution)
+    const relativePath = relative(this.knowledgePath, filePath);
+    entries = entries.map((e: any) => ({ ...e, source_path: relativePath }));
+
     await this.store.insert(entries);
     console.log(`[Ark KB] Indexed: ${base} (${entries.length} chunks)`);
 
