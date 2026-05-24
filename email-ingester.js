@@ -214,6 +214,11 @@ export class EmailIngester {
             }
             catch (err) {
                 console.error("[EmailIngester] Scan error:", err.message);
+                // Connection may be dead — reset to trigger reconnect next scan
+                if (err.message?.includes("connect") || err.message?.includes("ETIMEDOUT") || err.message?.includes("ECONN")) {
+                    this.imapClient = null;
+                    console.log("[EmailIngester] IMAP connection reset — will reconnect on next scan");
+                }
             }
         }
         finally {
