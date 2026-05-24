@@ -389,7 +389,7 @@ export class Searcher {
 // Score normalization (min-max to [0,1])
 // ============================================================================
 
-function normalizeScores(results: KBSearchResult[]): KBSearchResult[] {
+function normalizeScores(results: KBSearchResult[], higherIsBetter = false): KBSearchResult[] {
   if (results.length === 0) return [];
   const scores = results.map(r => r.score);
   const min = Math.min(...scores);

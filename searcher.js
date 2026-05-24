@@ -293,7 +293,7 @@ export class Searcher {
 // ============================================================================
 // Score normalization (min-max to [0,1])
 // ============================================================================
-function normalizeScores(results) {
+function normalizeScores(results, higherIsBetter = false) {
     if (results.length === 0)
         return [];
     const scores = results.map(r => r.score);
