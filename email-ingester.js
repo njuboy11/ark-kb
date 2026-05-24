@@ -178,9 +178,6 @@ export class EmailIngester {
                             if (email.uid > maxProcessedUID) {
                                 maxProcessedUID = email.uid;
                             }
-                            if (email.uid > maxProcessedUID) {
-                                maxProcessedUID = email.uid;
-                            }
                             if (email.internalDate > maxProcessedInternalDate) {
                                 maxProcessedInternalDate = email.internalDate;
                             }

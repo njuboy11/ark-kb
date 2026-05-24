@@ -299,7 +299,8 @@ export class ArkKB {
             }
             // Reranker call failed or unavailable — use un-reranked results
         }
-        catch {
+        catch (err) {
+            console.warn(`[Ark KB] Reranker API call failed: ${err.message} — falling back to un-reranked results`);
             return results.slice(0, options?.resultCount ?? this.config.search.resultCount).map(r => ({
                 score: r.score,
                 chunk_text: r.entry.chunk_text.substring(0, 500),
@@ -470,6 +471,7 @@ export class ArkKB {
         await this.emailIngester.init();
         this._emailIngesterInitialized = true;
     }
+    /** Retry failed ingestions from persisted list. Not yet wired into init() — TODO. */
     async _retryFailed(knowledgePath) {
         const fs = await import("node:fs");
         const p = await import("node:path");

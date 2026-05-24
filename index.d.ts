@@ -70,6 +70,7 @@ export declare class ArkKB {
     private getUserLLM;
     private _emailIngesterInitialized;
     private _initEmailIngester;
+    /** Retry failed ingestions from persisted list. Not yet wired into init() — TODO. */
     private _retryFailed;
     private _markFailed;
     getTools(): ({
