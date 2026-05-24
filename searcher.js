@@ -303,6 +303,6 @@ function normalizeScores(results, higherIsBetter = false) {
     if (range === 0)
         return results.map(r => ({ ...r, score: 1 }));
     // Lower distance = better match → invert so 1.0 = best, 0.0 = worst
-    return results.map(r => ({ ...r, score: 1 - (r.score - min) / range }));
+    return results.map(r => ({ ...r, score: higherIsBetter ? (r.score - min) / range : 1 - (r.score - min) / range }));
 }
 //# sourceMappingURL=searcher.js.map

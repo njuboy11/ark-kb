@@ -331,7 +331,7 @@ async function processText(
   chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
 ): Promise<KBEntry[]> {
   const content = await readFile(filePath, "utf-8");
-  const base = basename(filePath);
+  const relativePath = relative(this.knowledgePath, filePath);
   const fileHash = await hashFile(filePath);
   const chunks = chunkText(content, chunkConfig);
   const now = Date.now();
@@ -365,7 +365,7 @@ async function processImage(
   embedder: Embedder,
   opts?: { imageConfig?: { endpoint: string; apiKey: string; timeoutMs: number }; method?: "text" | "multimodal" },
 ): Promise<KBEntry[]> {
-  const base = basename(filePath);
+  const relativePath = relative(this.knowledgePath, filePath);
   const fileHash = await hashFile(filePath);
   const now = Date.now();
   const method = opts?.method ?? "text";
@@ -433,7 +433,7 @@ async function processVideo(
   vlmConfig: { endpoint: string; apiKey: string; maxFrames: number; timeoutMs?: number },
   method: "text" | "multimodal" = "text",
 ): Promise<KBEntry[]> {
-  const base = basename(filePath);
+  const relativePath = relative(this.knowledgePath, filePath);
   const fileHash = await hashFile(filePath);
   const now = Date.now();
 
@@ -538,7 +538,7 @@ async function processPdf(
   chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
   pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
 ): Promise<KBEntry[]> {
-  const base = basename(filePath);
+  const relativePath = relative(this.knowledgePath, filePath);
   const fileHash = await hashFile(filePath);
   const text = await extractPdfText(filePath, pdfConfig);
   const chunks = chunkText(text, chunkConfig);
@@ -651,7 +651,7 @@ export class Ingester {
           return { entries: 0, source: basename(filePath), skipped: true };
         }
 
-        const base = basename(filePath);
+        const relativePath = relative(this.knowledgePath, filePath);
 
         // Third layer: DB hash deduplication (different name, same content)
         try {
@@ -659,7 +659,7 @@ export class Ingester {
           const hashExists = await this.store.hasFileHash(newHash);
           if (hashExists) {
             console.log(`[Ark KB] Skipping duplicate (hash match): ${base}`);
-            return { entries: 0, source: base, skipped: true };
+            return { entries: 0, source: relativePath, skipped: true };
           }
         } catch {
           // Continue with ingestion if hash check fails
@@ -693,15 +693,15 @@ export class Ingester {
               );
               break;
             default:
-              return { entries: 0, source: base, skipped: true };
+              return { entries: 0, source: relativePath, skipped: true };
           }
         } catch (err: any) {
           console.error(`[Ark KB] Failed to process ${filePath}: ${err.message}`);
-          return { entries: 0, source: base, skipped: false };
+          return { entries: 0, source: relativePath, skipped: false };
         }
 
         if (entries.length === 0) {
-          return { entries: 0, source: base, skipped: false };
+          return { entries: 0, source: relativePath, skipped: false };
         }
 
         // Fix source_path to be relative to knowledgePath (for multi-KB media resolution)
@@ -711,10 +711,10 @@ export class Ingester {
         // Insert new entries first (crash-safe: new data is persisted before old is removed)
         await this.store.insert(entries);
         // Clean up old entries after new data is safely stored
-        await this.store.deleteBySource(base);
+        await this.store.deleteBySource(relativePath);
         console.log(`[Ark KB] Indexed: ${base} (${entries.length} chunks)`);
 
-        return { entries: entries.length, source: base, skipped: false };
+        return { entries: entries.length, source: relativePath, skipped: false };
       } finally {
         this._ingestLocks.delete(filePath);
       }
@@ -737,7 +737,7 @@ export class Ingester {
 
     for (const filePath of files) {
       try {
-        const base = basename(filePath);
+        const relativePath = relative(this.knowledgePath, filePath);
         const fileHash = await hashFile(filePath);
 
         // Check if this file with same hash already exists in LanceDB
