@@ -49,6 +49,13 @@ export interface MultiKBOptions {
             overlapTokens: number;
             strategy: "paragraph" | "fixed" | "sentence";
         };
+        pdfParser?: {
+            api: "mineru" | "builtin" | "none";
+            endpoint: string;
+            apiKey: string;
+            model?: string;
+            params?: Record<string, boolean>;
+        };
     };
     /** Video summarizer config (needed for video text mode) */
     videoConfig?: {

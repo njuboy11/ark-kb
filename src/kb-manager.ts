@@ -57,6 +57,7 @@ export interface MultiKBOptions {
     apiKey?: string;
     model?: string;
     chunking?: { maxTokens: number; overlapTokens: number; strategy: "paragraph" | "fixed" | "sentence" };
+    pdfParser?: { api: "mineru" | "builtin" | "none"; endpoint: string; apiKey: string; model?: string; params?: Record<string, boolean> };
   };
   /** Video summarizer config (needed for video text mode) */
   videoConfig?: { endpoint: string; apiKey: string; maxFrames: number; timeoutMs?: number };
@@ -92,7 +93,7 @@ export class KBManager {
   private knowledgePath: string;
   private dbPath: string;
   private vectorDim: number;
-  private embedderConfig: { api: string; endpoint: string; apiKey: string; model: string; chunking: { maxTokens: number; overlapTokens: number; strategy: "paragraph" | "fixed" | "sentence" } };
+  private embedderConfig: { api: string; endpoint: string; apiKey: string; model: string; chunking: { maxTokens: number; overlapTokens: number; strategy: "paragraph" | "fixed" | "sentence" }; pdfParser?: { api: "mineru" | "builtin" | "none"; endpoint: string; apiKey: string; model?: string; params?: Record<string, boolean> } };
   private kbs: Map<string, KnowledgeStore> = new Map();
   private ingesters: Map<string, Ingester> = new Map();
   private _videoConfig: { endpoint: string; apiKey: string; maxFrames: number; timeoutMs: number };
@@ -198,7 +199,7 @@ export class KBManager {
       dimensions: this.vectorDim,
       batchSize: 16,
     });
-    const pdfParser = (this.embedderConfig as any).pdfParser ?? { api: "none" as const, endpoint: "", apiKey: "", model: "", params: {} };
+    const pdfParser = this.embedderConfig.pdfParser ?? { api: "none" as const, endpoint: "", apiKey: "", model: "", params: {} };
     return new Ingester(
       store,
       embedder,
