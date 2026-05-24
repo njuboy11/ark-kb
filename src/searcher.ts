@@ -10,6 +10,13 @@ import { KnowledgeStore, KBSearchResult, KBEntry } from "./store.js";
 import { Embedder, exposeMediaFile } from "./embedder.js";
 import { SearcherConfig } from "./index.js";
 
+/** Safely parse images field (already array or JSON string). */
+function safeParseImages(val: unknown): string[] {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val !== "string" || !val) return [];
+  try { return JSON.parse(val) as string[]; } catch { return []; }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -214,7 +221,7 @@ export class Searcher {
       source_path: r.entry.source_path,
       chunk_index: r.entry.chunk_index,
       total_chunks: r.entry.total_chunks,
-      images: JSON.parse(r.entry.images || "[]"),
+      images: safeParseImages(r.entry.images),
       file_type: r.entry.file_type,
     }));
   }

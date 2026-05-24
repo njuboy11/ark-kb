@@ -23,6 +23,17 @@ import {
 import { registerKBTools } from "./tools.js";
 import { Searcher } from "./searcher.js";
 
+/**
+ * Safely parse images field whether it's already an array or a JSON string.
+ * Searcher.search() already parses images to array, so upstream callers
+ * may receive arrays that should not be re-parsed.
+ */
+function safeParseImages(val: unknown): string[] {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val !== "string" || !val) return [];
+  try { return JSON.parse(val) as string[]; } catch { return []; }
+}
+
 // ============================================================================
 // ArkKB — Core class (used both by the plugin and for direct Node.js usage)
 // ============================================================================
@@ -283,7 +294,7 @@ export class ArkKB {
       source_path: r.entry.source_path,
       chunk_index: r.entry.chunk_index,
       total_chunks: r.entry.total_chunks,
-      images: JSON.parse(r.entry.images || "[]"),
+      images: safeParseImages(r.entry.images),
       file_type: r.entry.file_type,
       kbName: r.kbName,
     }));
@@ -308,7 +319,7 @@ export class ArkKB {
         source_path: r.entry.source_path,
         chunk_index: r.entry.chunk_index,
         total_chunks: r.entry.total_chunks,
-        images: JSON.parse(r.entry.images || "[]"),
+        images: safeParseImages(r.entry.images),
         file_type: r.entry.file_type,
         kbName: r.kbName,
       }));
@@ -348,7 +359,7 @@ export class ArkKB {
               source_path: r.entry.source_path ?? "",
               chunk_index: r.entry.chunk_index ?? 0,
               total_chunks: r.entry.total_chunks ?? 0,
-              images: JSON.parse(r.entry.images || "[]"),
+              images: safeParseImages(r.entry.images),
               file_type: r.entry.file_type ?? "",
               kbName: r.kbName,
             }))
@@ -367,7 +378,7 @@ export class ArkKB {
       source_path: r.entry.source_path,
       chunk_index: r.entry.chunk_index,
       total_chunks: r.entry.total_chunks,
-      images: JSON.parse(r.entry.images || "[]"),
+      images: safeParseImages(r.entry.images),
       file_type: r.entry.file_type,
       kbName: r.kbName,
     }));
