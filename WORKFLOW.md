@@ -46,3 +46,9 @@ node -e "require('./index.js')"
 - 编译前自动跑 `npx eslint src/` 和 `tsc --noEmit`
 - 有任何错误 → 编译中止
 - 空 catch 块必须有 console.warn/error 日志
+
+## 8. 单测（改代码前跑）
+- 框架: vitest (pnpm)
+- 运行: `npx vitest run`
+- 新增关键路径必须加测试
+- 重点覆盖: _recordFailure, scan() mutex, config validation
