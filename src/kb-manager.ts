@@ -6,6 +6,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { ResolvedConfig } from "./config.js";
 import { KnowledgeStore } from "./store.js";
 import { Ingester, hashFile } from "./ingester.js";
 import { Embedder } from "./embedder.js";
@@ -199,7 +200,9 @@ export class KBManager {
       dimensions: this.vectorDim,
       batchSize: 16,
     });
-    const pdfParser = this.embedderConfig.pdfParser ?? { api: "none" as const, endpoint: "", apiKey: "", model: "", params: {} };
+    const pdfParser: ResolvedConfig["pdfParser"] = this.embedderConfig.pdfParser
+      ? { ...this.embedderConfig.pdfParser, model: this.embedderConfig.pdfParser.model ?? "", params: this.embedderConfig.pdfParser.params ?? {} }
+      : { api: "none", endpoint: "", apiKey: "", model: "", params: {} };
     return new Ingester(
       store,
       embedder,
