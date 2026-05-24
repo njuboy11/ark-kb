@@ -539,6 +539,7 @@ export function createPlugin(ark) {
         tools: ark.getTools().map(t => t.name),
     };
 }
+console.log("[Ark KB] register() called");
 export function register(api) {
     const pluginDir = import.meta.dirname;
     const standalonePath = join(pluginDir, "plugin-config.json");

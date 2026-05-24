@@ -619,6 +619,7 @@ export function createPlugin(ark: ArkKB) {
   };
 }
 
+console.log("[Ark KB] register() called");
 export function register(api: {
   registerTool: (tool: any, opts?: any) => void;
   registerRuntimeLifecycle: (lifecycle: { id: string; shutdown: () => Promise<void> }) => void;
