@@ -516,10 +516,14 @@ export class KBManager {
    * Layer 2 — same name + different hash: rename with _1, _2 suffix (filesystem)
    * Layer 3 — different name + same hash: skip (DB hash check in ingester)
    */
-  async ingestByPath(filePath: string): Promise<IngestResult> {
+  /**
+   * Ingest a file by path. Resolves the correct KB automatically unless
+   * kbName is provided (e.g. from EmailIngester which already knows the target).
+   */
+  async ingestByPath(filePath: string, kbName?: string): Promise<IngestResult> {
     const resolved = path.resolve(filePath);
-    const kbName = this._resolveKBForPath(resolved);
-    const kbPath = path.join(this.knowledgePath, kbName);
+    const targetKB = kbName ?? this._resolveKBForPath(resolved);
+    const kbPath = path.join(this.knowledgePath, targetKB);
 
     // Layers 1 & 2: filesystem deduplication
     const destName = path.basename(resolved);
@@ -539,7 +543,7 @@ export class KBManager {
         if (newHash === oldHash) {
           // Layer 1: same name + same hash → skip
           console.log(`[MultiKB] Skipping duplicate (same name + hash): ${destName}`);
-          return { entries: 0, source: destName, skipped: true, kbName };
+          return { entries: 0, source: destName, skipped: true, kbName: targetKB };
         }
 
         // Layer 2: same name + different hash → rename
@@ -547,8 +551,8 @@ export class KBManager {
         const uniquePath = path.join(kbPath, uniqueName);
         fs.copyFileSync(resolved, uniquePath);
         console.log(`[MultiKB] Renamed to avoid conflict: ${destName} → ${uniqueName}`);
-        const result = await this.ingesters.get(kbName)!.ingestFile(uniquePath);
-        return { ...result, kbName };
+        const result = await this.ingesters.get(targetKB)!.ingestFile(uniquePath);
+        return { ...result, kbName: targetKB };
       }
       // sameFile: already in KB dir, no copy needed — fall through to ingest
     } else {
@@ -556,12 +560,12 @@ export class KBManager {
       fs.copyFileSync(resolved, destPath);
     }
 
-    const ingester = this.ingesters.get(kbName);
+    const ingester = this.ingesters.get(targetKB);
     if (!ingester) {
-      throw new Error(`[MultiKB] No ingester for KB "${kbName}" — is the KB initialized?`);
+      throw new Error(`[MultiKB] No ingester for KB "${targetKB}" — is the KB initialized?`);
     }
     const result = await ingester.ingestFile(destPath);
-    return { ...result, kbName };
+    return { ...result, kbName: targetKB };
   }
 
   /**

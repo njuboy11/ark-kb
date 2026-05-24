@@ -339,58 +339,52 @@ export class EmailIngester {
       }
     }
 
-    // Ingest each attachment into each matched KB
-    // For each attachment, compute hash FIRST (while still in temp), then
-    // check against LanceDB BEFORE copying to the knowledge directory.
+    // Ingest each attachment into each matched KB.
+    // Strategy: compute hash in temp → check LanceDB → skip if duplicate →
+    // otherwise let ingestByPath handle copy + rename-on-conflict.
     for (const filePath of downloadedPaths) {
-      // Compute hash before touching the KB directory
+      const destName = path.basename(filePath);
+
+      // Step 1: Compute hash BEFORE touching the KB directory
       let fileHash: string;
       try {
         fileHash = await hashFile(filePath);
       } catch (e: any) {
         this._recordFailure(email.uid, email.messageId, `hash failed: ${e.message}`, email.internalDate);
+        try { fs.unlinkSync(filePath); } catch {}
         continue;
       }
 
-      const destName = path.basename(filePath);
+      // Step 2: Check LanceDB — same hash = same content = already indexed
+      // Check against the FIRST KB only; multi-KB dedup is handled per-KB below
+      const firstKb = targetKBs[0];
+      const firstStore = firstKb ? this.kbManager.getKB(firstKb) : undefined;
+      if (firstStore && await firstStore.hasFileHash(fileHash)) {
+        console.log(`[EmailIngester] Skipping ${destName} — already indexed (hash match)`);
+        try { fs.unlinkSync(filePath); } catch {}
+        continue;
+      }
+
+      // Step 3: Copy + ingest into each target KB.
+      // ingestByPath handles: same-file skip, hash-dedup, rename-on-name-conflict.
       let ingestedAny = false;
-
       for (const kbName of targetKBs) {
-        const store = this.kbManager.getKB(kbName);
-        if (!store) continue;
-
-        // Check LanceDB hash FIRST — before copying to KB directory
-        if (await store.hasFileHash(fileHash)) {
-          console.log(`[EmailIngester] Skipping ${destName} for KB ${kbName} — already indexed (hash match)`);
-          continue;
-        }
-
         const kbPath = path.join(this.knowledgePath, kbName);
         fs.mkdirSync(kbPath, { recursive: true });
-        const destPath = path.join(kbPath, destName);
 
-        // Copy only if not already on disk (first KB copies from temp, others from first KB)
-        if (!fs.existsSync(destPath)) {
-          try { fs.copyFileSync(filePath, destPath); } catch (e: any) {
-            console.error(`[EmailIngester] Failed to copy ${destName} to KB ${kbName}:`, e.message);
-            this._recordFailure(email.uid, email.messageId, `Copy failed: ${e.message}`, email.internalDate);
-            continue;
-          }
-        }
-
-        // Ingest the now-copied file
         let retries = 0;
         while (retries < this.config.maxRetries) {
           try {
-            await this.kbManager.ingestByPath(destPath);
-            this.state.totalProcessed++;
-            ingestedAny = true;
+            const result = await this.kbManager.ingestByPath(filePath, kbName);
+            if (result.entries > 0) {
+              this.state.totalProcessed++;
+              ingestedAny = true;
+            }
             break;
           } catch (err: any) {
             retries++;
             if (retries >= this.config.maxRetries) {
               this._recordFailure(email.uid, email.messageId, `Failed to ingest ${destName}: ${err.message}`, email.internalDate);
-              try { fs.unlinkSync(filePath); } catch {}
             } else {
               await this._sleep(1000 * retries);
             }
@@ -398,10 +392,8 @@ export class EmailIngester {
         }
       }
 
-      if (!ingestedAny) {
-        // Hash found in ALL KBs — clean up temp file
-        try { fs.unlinkSync(filePath); } catch {}
-      }
+      // Clean up temp file after all KBs processed
+      try { fs.unlinkSync(filePath); } catch {}
     }
     // Clean up temp files AFTER all KBs have been processed
     for (const filePath of downloadedPaths) {
