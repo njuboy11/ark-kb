@@ -71,8 +71,7 @@ export class EmailIngester {
             return;
         }
         this._scanning = true;
-        try {
-            if (!this.imapClient) {
+        if (!this.imapClient) {
             try {
                 await this._connect();
             }
