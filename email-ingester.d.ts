@@ -53,6 +53,7 @@ export declare class EmailIngester {
             model: string;
         };
     });
+    private _initialized;
     init(): Promise<void>;
     scan(): Promise<void>;
     private _processEmail;

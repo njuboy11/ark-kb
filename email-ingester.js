@@ -31,7 +31,12 @@ export class EmailIngester {
     // -------------------------------------------------------------------------
     // Init
     // -------------------------------------------------------------------------
+    _initialized = false;
     async init() {
+        if (this._initialized) {
+            console.log("[EmailIngester] Already initialized — skipping duplicate call");
+            return;
+        }
         if (!this.config.enabled) {
             console.log("[EmailIngester] Disabled — skipping");
             return;
@@ -61,6 +66,7 @@ export class EmailIngester {
         this.scanTimer = setInterval(() => {
             this.scan().catch(err => console.error("[EmailIngester] Scan error:", err.message));
         }, this.config.scanIntervalMs);
+        this._initialized = true;
         console.log(`[EmailIngester] Started — scanning ${this.config.host} every ${this.config.scanIntervalMs}ms`);
     }
     // -------------------------------------------------------------------------
