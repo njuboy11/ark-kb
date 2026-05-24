@@ -81,7 +81,7 @@ export class EmailIngester {
     this.llmClient = opts.llmClient;
     // State file alongside LanceDB (dbPath parent)
     this.emailStatePath = path.join(homedir(), ".ark-kb", "email-state.json");
-    this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, lastProcessedUID: 0, failed: [] };
+    this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, lastProcessedUID: 0, failed: [], permanentFailures: [] };
   }
 
   // -------------------------------------------------------------------------
@@ -675,6 +675,7 @@ export class EmailIngester {
           totalProcessed: loaded.totalProcessed ?? 0,
           lastProcessedUID: loaded.lastProcessedUID ?? 0,
           failed: loaded.failed ?? [],
+          permanentFailures: loaded.permanentFailures ?? [],
         };
       }
     } catch (err: any) {
