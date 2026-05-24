@@ -700,9 +700,6 @@ export class Ingester {
           return { entries: 0, source: base, skipped: false };
         }
 
-        // Delete existing + insert new (only after successful processing)
-        await this.store.deleteBySource(base);
-
         if (entries.length === 0) {
           return { entries: 0, source: base, skipped: false };
         }
@@ -711,7 +708,10 @@ export class Ingester {
         const relativePath = relative(this.knowledgePath, filePath);
         entries = entries.map((e: any) => ({ ...e, source_path: relativePath }));
 
+        // Insert new entries first (crash-safe: new data is persisted before old is removed)
         await this.store.insert(entries);
+        // Clean up old entries after new data is safely stored
+        await this.store.deleteBySource(base);
         console.log(`[Ark KB] Indexed: ${base} (${entries.length} chunks)`);
 
         return { entries: entries.length, source: base, skipped: false };
