@@ -526,29 +526,35 @@ export class KBManager {
     const destPath = path.join(kbPath, destName);
 
     if (fs.existsSync(destPath)) {
-      // Compute both hashes to decide: skip or rename
-      const [newHash, oldHash] = await Promise.all([
-        hashFile(resolved),
-        hashFile(destPath),
-      ]);
+      // If source and dest are the same file (e.g. emailIngester already copied),
+      // skip the self-comparison and go straight to ingest.
+      const sameFile = path.resolve(resolved) === path.resolve(destPath);
+      if (!sameFile) {
+        // Compute both hashes to decide: skip or rename
+        const [newHash, oldHash] = await Promise.all([
+          hashFile(resolved),
+          hashFile(destPath),
+        ]);
 
-      if (newHash === oldHash) {
-        // Layer 1: same name + same hash → skip
-        console.log(`[MultiKB] Skipping duplicate (same name + hash): ${destName}`);
-        return { entries: 0, source: destName, skipped: true, kbName };
+        if (newHash === oldHash) {
+          // Layer 1: same name + same hash → skip
+          console.log(`[MultiKB] Skipping duplicate (same name + hash): ${destName}`);
+          return { entries: 0, source: destName, skipped: true, kbName };
+        }
+
+        // Layer 2: same name + different hash → rename
+        const uniqueName = this._getUniqueFilename(destName, kbPath);
+        const uniquePath = path.join(kbPath, uniqueName);
+        fs.copyFileSync(resolved, uniquePath);
+        console.log(`[MultiKB] Renamed to avoid conflict: ${destName} → ${uniqueName}`);
+        const result = await this.ingesters.get(kbName)!.ingestFile(uniquePath);
+        return { ...result, kbName };
       }
-
-      // Layer 2: same name + different hash → rename
-      const uniqueName = this._getUniqueFilename(destName, kbPath);
-      const uniquePath = path.join(kbPath, uniqueName);
-      fs.copyFileSync(resolved, uniquePath);
-      console.log(`[MultiKB] Renamed to avoid conflict: ${destName} → ${uniqueName}`);
-      const result = await this.ingesters.get(kbName)!.ingestFile(uniquePath);
-      return { ...result, kbName };
+      // sameFile: already in KB dir, no copy needed — fall through to ingest
+    } else {
+      // No conflict — copy file to KB folder and ingest
+      fs.copyFileSync(resolved, destPath);
     }
-
-    // No conflict — copy file to KB folder and ingest
-    fs.copyFileSync(resolved, destPath);
 
     const ingester = this.ingesters.get(kbName);
     if (!ingester) {
