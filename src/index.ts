@@ -87,6 +87,7 @@ export class ArkKB {
   private _failedListPath = "";
 
   constructor(rawConfig: ArkKBConfig = {}) {
+    console.log("[Ark KB] Constructor called — stack:", new Error().stack?.split('\n').slice(1,5).join('\n'));
     this.config = resolveConfig(rawConfig);
 
     const knowledgePath = expandPath(this.config.knowledgePath);

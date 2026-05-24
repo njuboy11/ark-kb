@@ -65,6 +65,7 @@ export class ArkKB {
     _defaultSearcher;
     _failedListPath = "";
     constructor(rawConfig = {}) {
+        console.log("[Ark KB] Constructor called — stack:", new Error().stack?.split('\n').slice(1, 5).join('\n'));
         this.config = resolveConfig(rawConfig);
         const knowledgePath = expandPath(this.config.knowledgePath);
         const dbPath = expandPath(this.config.storage.dbPath);
