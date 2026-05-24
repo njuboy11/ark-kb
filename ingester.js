@@ -495,9 +495,6 @@ async function processPdf(filePath, embedder, chunkConfig, pdfConfig) {
         updated_at: now,
     }));
 }
-// ============================================================================
-// Ingester
-// ============================================================================
 export class Ingester {
     store;
     embedder;
@@ -507,6 +504,8 @@ export class Ingester {
     imageMethod = "text";
     videoMethod = "text";
     knowledgePath = "";
+    /** Per-file mutex: prevents TOCTOU races when the same file is ingested concurrently. */
+    _ingestLocks = new Map();
     constructor(store, embedder, config, knowledgePath, videoConfig, imageConfig, modes) {
         this.store = store;
         this.embedder = embedder;
@@ -528,70 +527,83 @@ export class Ingester {
      * Returns the number of entries inserted.
      */
     async ingestFile(filePath) {
-        const kind = detectFileKind(filePath);
-        if (kind === "unsupported") {
-            console.log(`[Ark KB] Skipping unsupported file: ${filePath}`);
-            return { entries: 0, source: basename(filePath), skipped: true };
+        // Mutex guard: if this file is already being ingested, await the in-flight promise.
+        if (this._ingestLocks.has(filePath)) {
+            return await this._ingestLocks.get(filePath);
         }
-        // Check if the embedding model supports this file type
-        const modality = kind === "pdf" ? "text" : kind; // PDFs are text after MinerU extraction
-        const videoTextMode = kind === "video" && this.videoConfig.apiKey && this.videoMethod === "text"; // Text-mode video: VLM summary → text
-        const videoMMMode = kind === "video" && this.videoMethod === "multimodal"; // Multimodal video: direct frame embedding
-        const skipModalityCheck = videoTextMode || videoMMMode; // Videos always proceed (text mode via VLM, mm mode via frames)
-        if (!skipModalityCheck && !this.embedder.supportsModality(modality)) {
-            console.log(`[Ark KB] Skipping ${kind} file (model does not support ${modality}): ${filePath}`);
-            return { entries: 0, source: basename(filePath), skipped: true };
-        }
-        const base = basename(filePath);
-        // Third layer: DB hash deduplication (different name, same content)
-        try {
-            const newHash = await hashFile(filePath);
-            const hashExists = await this.store.hasFileHash(newHash);
-            if (hashExists) {
-                console.log(`[Ark KB] Skipping duplicate (hash match): ${base}`);
-                return { entries: 0, source: base, skipped: true };
+        const promise = (async () => {
+            try {
+                const kind = detectFileKind(filePath);
+                if (kind === "unsupported") {
+                    console.log(`[Ark KB] Skipping unsupported file: ${filePath}`);
+                    return { entries: 0, source: basename(filePath), skipped: true };
+                }
+                // Check if the embedding model supports this file type
+                const modality = kind === "pdf" ? "text" : kind; // PDFs are text after MinerU extraction
+                const videoTextMode = kind === "video" && this.videoConfig.apiKey && this.videoMethod === "text"; // Text-mode video: VLM summary → text
+                const videoMMMode = kind === "video" && this.videoMethod === "multimodal"; // Multimodal video: direct frame embedding
+                const skipModalityCheck = videoTextMode || videoMMMode; // Videos always proceed (text mode via VLM, mm mode via frames)
+                if (!skipModalityCheck && !this.embedder.supportsModality(modality)) {
+                    console.log(`[Ark KB] Skipping ${kind} file (model does not support ${modality}): ${filePath}`);
+                    return { entries: 0, source: basename(filePath), skipped: true };
+                }
+                const base = basename(filePath);
+                // Third layer: DB hash deduplication (different name, same content)
+                try {
+                    const newHash = await hashFile(filePath);
+                    const hashExists = await this.store.hasFileHash(newHash);
+                    if (hashExists) {
+                        console.log(`[Ark KB] Skipping duplicate (hash match): ${base}`);
+                        return { entries: 0, source: base, skipped: true };
+                    }
+                }
+                catch {
+                    // Continue with ingestion if hash check fails
+                }
+                let entries;
+                try {
+                    switch (kind) {
+                        case "text":
+                            entries = await processText(filePath, this.embedder, this.config.chunking);
+                            break;
+                        case "image":
+                            entries = await processImage(filePath, this.embedder, {
+                                imageConfig: this.imageConfig,
+                                method: this.imageMethod,
+                            });
+                            break;
+                        case "video":
+                            entries = await processVideo(filePath, this.embedder, this.videoConfig, this.videoMethod);
+                            break;
+                        case "pdf":
+                            entries = await processPdf(filePath, this.embedder, this.config.chunking, this.config.pdfParser);
+                            break;
+                        default:
+                            return { entries: 0, source: base, skipped: true };
+                    }
+                }
+                catch (err) {
+                    console.error(`[Ark KB] Failed to process ${filePath}: ${err.message}`);
+                    return { entries: 0, source: base, skipped: false };
+                }
+                // Delete existing + insert new (only after successful processing)
+                await this.store.deleteBySource(base);
+                if (entries.length === 0) {
+                    return { entries: 0, source: base, skipped: false };
+                }
+                // Fix source_path to be relative to knowledgePath (for multi-KB media resolution)
+                const relativePath = relative(this.knowledgePath, filePath);
+                entries = entries.map((e) => ({ ...e, source_path: relativePath }));
+                await this.store.insert(entries);
+                console.log(`[Ark KB] Indexed: ${base} (${entries.length} chunks)`);
+                return { entries: entries.length, source: base, skipped: false };
             }
-        }
-        catch {
-            // Continue with ingestion if hash check fails
-        }
-        let entries;
-        try {
-            switch (kind) {
-                case "text":
-                    entries = await processText(filePath, this.embedder, this.config.chunking);
-                    break;
-                case "image":
-                    entries = await processImage(filePath, this.embedder, {
-                        imageConfig: this.imageConfig,
-                        method: this.imageMethod,
-                    });
-                    break;
-                case "video":
-                    entries = await processVideo(filePath, this.embedder, this.videoConfig, this.videoMethod);
-                    break;
-                case "pdf":
-                    entries = await processPdf(filePath, this.embedder, this.config.chunking, this.config.pdfParser);
-                    break;
-                default:
-                    return { entries: 0, source: base, skipped: true };
+            finally {
+                this._ingestLocks.delete(filePath);
             }
-        }
-        catch (err) {
-            console.error(`[Ark KB] Failed to process ${filePath}: ${err.message}`);
-            return { entries: 0, source: base, skipped: false };
-        }
-        // Delete existing + insert new (only after successful processing)
-        await this.store.deleteBySource(base);
-        if (entries.length === 0) {
-            return { entries: 0, source: base, skipped: false };
-        }
-        // Fix source_path to be relative to knowledgePath (for multi-KB media resolution)
-        const relativePath = relative(this.knowledgePath, filePath);
-        entries = entries.map((e) => ({ ...e, source_path: relativePath }));
-        await this.store.insert(entries);
-        console.log(`[Ark KB] Indexed: ${base} (${entries.length} chunks)`);
-        return { entries: entries.length, source: base, skipped: false };
+        })();
+        this._ingestLocks.set(filePath, promise);
+        return await promise;
     }
     /**
      * Recursively ingest all supported files in a directory.

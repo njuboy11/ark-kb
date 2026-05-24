@@ -22,6 +22,11 @@ export declare function chunkText(text: string, config: {
  * Extract text from PDF using MinerU API or built-in pdf-parse.
  */
 export declare function extractPdfText(filePath: string, pdfConfig: NonNullable<IngesterConfig["pdfParser"]>): Promise<string>;
+export type IngestResult = {
+    entries: number;
+    source: string;
+    skipped: boolean;
+};
 export declare class Ingester {
     private store;
     private embedder;
@@ -31,6 +36,8 @@ export declare class Ingester {
     private imageMethod;
     private videoMethod;
     private knowledgePath;
+    /** Per-file mutex: prevents TOCTOU races when the same file is ingested concurrently. */
+    private _ingestLocks;
     constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig, knowledgePath?: string, videoConfig?: {
         endpoint: string;
         apiKey: string;
@@ -49,11 +56,7 @@ export declare class Ingester {
      * Skips files with no changes (hash comparison).
      * Returns the number of entries inserted.
      */
-    ingestFile(filePath: string): Promise<{
-        entries: number;
-        source: string;
-        skipped: boolean;
-    }>;
+    ingestFile(filePath: string): Promise<IngestResult>;
     /**
      * Recursively ingest all supported files in a directory.
      */
