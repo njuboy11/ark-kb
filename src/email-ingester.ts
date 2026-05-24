@@ -470,7 +470,7 @@ export class EmailIngester {
       } catch {
         isBinary = true;
       }
-      if (isBinary) continue;
+      if (!isBinary) {
       let content = att.data.toString("utf-8").substring(0, 8000);
       if (!this.llmClient.endpoint || !this.llmClient.apiKey) return [];
 

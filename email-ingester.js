@@ -401,74 +401,77 @@ export class EmailIngester {
             catch {
                 isBinary = true;
             }
-            if (isBinary)
-                continue;
-            let content = att.data.toString("utf-8").substring(0, 8000);
-            if (!this.llmClient.endpoint || !this.llmClient.apiKey)
-                return [];
-            try {
-                const systemPrompt = `当前可用知识库：${kbList}。请根据以下文档内容判断最适合放入哪些知识库。如果文档涉及多个领域，可以返回多个知识库。只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"], "reason": "简短说明"}`;
-                const response = await this.askLLM(systemPrompt, content);
-                const parsed = this._parseLLMJson(response);
-                const matched = (parsed?.kbNames || []).filter((n) => kbNames.includes(n));
-                if (matched.length > 0) {
-                    console.log(`[EmailIngester] Stage2 text routed "${att.filename}" → ${matched.join(", ")}`);
-                    return matched;
+            if (!isBinary) {
+                let content = att.data.toString("utf-8").substring(0, 8000);
+                if (!this.llmClient.endpoint || !this.llmClient.apiKey)
+                    return [];
+                try {
+                    const systemPrompt = `当前可用知识库：${kbList}。请根据以下文档内容判断最适合放入哪些知识库。如果文档涉及多个领域，可以返回多个知识库。只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"], "reason": "简短说明"}`;
+                    const response = await this.askLLM(systemPrompt, content);
+                    const parsed = this._parseLLMJson(response);
+                    const matched = (parsed?.kbNames || []).filter((n) => kbNames.includes(n));
+                    if (matched.length > 0) {
+                        console.log(`[EmailIngester] Stage2 text routed "${att.filename}" → ${matched.join(", ")}`);
+                        return matched;
+                    }
+                }
+                catch (err) {
+                    console.warn("[EmailIngester] Stage2 text LLM failed:", err.message);
                 }
             }
-            catch (err) {
-                console.warn("[EmailIngester] Stage2 text LLM failed:", err.message);
-            }
-        }
-        else if (imageExts.includes(ext)) {
-            // Stage 2b: VLM image analysis
-            if (!this.llmClient.endpoint || !this.llmClient.apiKey)
-                return [];
-            try {
-                const base64 = att.data.toString("base64");
-                const mimeType = this._mimeType(ext);
-                const response = await this.askVLM(`当前可用知识库：${kbList}。请根据图片内容判断最适合放入哪些知识库。如果图片涉及多个领域，可以返回多个知识库。只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"], "reason": "简短说明"}`, base64, mimeType);
-                const parsed = this._parseLLMJson(response);
-                const matched = (parsed?.kbNames || []).filter((n) => kbNames.includes(n));
-                if (matched.length > 0) {
-                    console.log(`[EmailIngester] Stage2 image routed "${att.filename}" → ${matched.join(", ")}`);
-                    return matched;
+            else if (imageExts.includes(ext)) {
+                // Stage 2b: VLM image analysis
+                if (!this.llmClient.endpoint || !this.llmClient.apiKey)
+                    return [];
+                try {
+                    const base64 = att.data.toString("base64");
+                    const mimeType = this._mimeType(ext);
+                    const response = await this.askVLM(`当前可用知识库：${kbList}。请根据图片内容判断最适合放入哪些知识库。如果图片涉及多个领域，可以返回多个知识库。只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"], "reason": "简短说明"}`, base64, mimeType);
+                    const parsed = this._parseLLMJson(response);
+                    const matched = (parsed?.kbNames || []).filter((n) => kbNames.includes(n));
+                    if (matched.length > 0) {
+                        console.log(`[EmailIngester] Stage2 image routed "${att.filename}" → ${matched.join(", ")}`);
+                        return matched;
+                    }
+                }
+                catch (err) {
+                    console.warn("[EmailIngester] Stage2 image VLM failed:", err.message);
                 }
             }
-            catch (err) {
-                console.warn("[EmailIngester] Stage2 image VLM failed:", err.message);
+            else if (videoExts.includes(ext)) {
+                // Stage 2c: Video — for now, route to default KB (full video analysis is expensive)
+                // Could implement frame extraction + VLM here if needed
+                console.log(`[EmailIngester] Video attachment "${att.filename}" → default KB (video analysis not yet implemented)`);
+                return [this.kbManager.getDefaultKBName() || kbNames[0]];
             }
+            return [];
         }
-        else if (videoExts.includes(ext)) {
-            // Stage 2c: Video — for now, route to default KB (full video analysis is expensive)
-            // Could implement frame extraction + VLM here if needed
-            console.log(`[EmailIngester] Video attachment "${att.filename}" → default KB (video analysis not yet implemented)`);
-            return [this.kbManager.getDefaultKBName() || kbNames[0]];
-        }
-        return [];
-    }
-    // -------------------------------------------------------------------------
-    // LLM / VLM helpers
-    // -------------------------------------------------------------------------
-    async askLLM(systemPrompt, userContent) {
-        const { endpoint, apiKey, model } = this.llmClient;
-        const response = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                model,
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userContent },
-                ],
-                max_tokens: 512,
-                temperature: 0.1,
+        // -------------------------------------------------------------------------
+        // LLM / VLM helpers
+        // -------------------------------------------------------------------------
+        async;
+        askLLM(systemPrompt, string, userContent, string);
+        Promise < string > {
+            const: { endpoint, apiKey, model } = this.llmClient,
+            const: response = await fetch(endpoint, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: userContent },
+                    ],
+                    max_tokens: 512,
+                    temperature: 0.1,
+                }),
             }),
-        });
-        if (!response.ok) {
+            if(, response) { }, : .ok
+        };
+        {
             throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
         }
         const data = await response.json();
