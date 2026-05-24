@@ -111,6 +111,7 @@ export class KBManager {
       apiKey: opts.embedderConfig?.apiKey ?? "",
       model: opts.embedderConfig?.model ?? "text-embedding-3-small",
       chunking: opts.embedderConfig?.chunking ?? { maxTokens: 512, overlapTokens: 64, strategy: "paragraph" },
+      pdfParser: opts.embedderConfig?.pdfParser ?? { api: "none" as const, endpoint: "", apiKey: "", model: "", params: {} },
     };
     this._videoConfig = {
       endpoint: opts.videoConfig?.endpoint ?? "",

@@ -33,6 +33,7 @@ const MODEL_CAPABILITIES: Record<string, string[]> = {
   "text-embedding-v3": ["text"],
   "text-embedding-v2": ["text"],
   "Qwen/Qwen3-VL-Embedding-8B": ["text", "image"],
+  "Qwen/Qwen3-Embedding-8B": ["text"],
   "text-embedding-3-large": ["text"],
   "text-embedding-3-small": ["text"],
   "text-embedding-ada-002": ["text"],

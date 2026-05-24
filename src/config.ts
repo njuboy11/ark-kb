@@ -180,7 +180,7 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
     api: "siliconflow",
     endpoint: "https://api.siliconflow.cn/v1/embeddings",
     apiKey: "",
-    model: "Qwen/Qwen3-VL-Embedding-8B",
+    model: "Qwen/Qwen3-Embedding-8B",
     dimensions: 4096,
     batchSize: 16,
     method: { image: "text" as const, video: "text" as const },

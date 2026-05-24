@@ -113,6 +113,7 @@ export class ArkKB {
         apiKey: this.config.embedding.apiKey,
         model: this.config.embedding.model,
         chunking: this.config.chunking,
+        pdfParser: this.config.pdfParser,
       },
       videoConfig: {
         endpoint: this.config.videoSummarizer.endpoint,

@@ -544,6 +544,7 @@ async function processPdf(
   chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
   pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
 ): Promise<KBEntry[]> {
+  console.log(`[Ark KB] processPdf: ${basename(filePath)} api=${pdfConfig.api} ep=${pdfConfig.endpoint?.slice(0,30)} key=${!!pdfConfig.apiKey} model=${pdfConfig.model}`);
   const base = basename(filePath);
   const fileHash = await hashFile(filePath);
   const text = await extractPdfText(filePath, pdfConfig);
@@ -651,7 +652,8 @@ export class Ingester {
         const modality = kind === "pdf" ? "text" : kind; // PDFs are text after MinerU extraction
         const videoTextMode = kind === "video" && this.videoConfig.apiKey && this.videoMethod === "text"; // Text-mode video: VLM summary → text
         const videoMMMode = kind === "video" && this.videoMethod === "multimodal"; // Multimodal video: direct frame embedding
-        const skipModalityCheck = videoTextMode || videoMMMode; // Videos always proceed (text mode via VLM, mm mode via frames)
+        const imageTextMode = kind === "image" && this.imageConfig.apiKey && this.imageMethod === "text"; // Text-mode image: VLM summary → text
+        const skipModalityCheck = videoTextMode || videoMMMode || imageTextMode; // VLM summary path bypasses embedding model modality check
         if (!skipModalityCheck && !this.embedder.supportsModality(modality)) {
           console.log(`[Ark KB] Skipping ${kind} file (model does not support ${modality}): ${filePath}`);
           return { entries: 0, source: basename(filePath), skipped: true };
