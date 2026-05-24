@@ -3,7 +3,7 @@
  * ffmpeg frame extraction + tiling → MiniMax VLM → text summary → embedding
  * Also supports multimodal mode: extract key frames for direct multimodal embedding.
  */
-import { spawn, execSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -126,7 +126,10 @@ export async function summarizeImage(imagePath, config) {
 // Video probing
 // ============================================================================
 async function probeVideo(filePath) {
-    const result = execSync(`ffprobe -v quiet -print_format json -show_format -show_streams "${filePath}"`, { encoding: "utf-8" });
+    const result = spawnSync("ffprobe", [
+        "-v", "quiet", "-print_format", "json",
+        "-show_format", "-show_streams", filePath
+    ], { encoding: "utf-8" }).stdout;
     const data = JSON.parse(result);
     const videoStream = data.streams?.find((s) => s.codec_type === "video");
     const format = data.format ?? {};

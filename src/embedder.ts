@@ -182,7 +182,7 @@ export async function exposeMediaFile(
   if (existsSync(serveDir)) {
     try {
       const dest = join(serveDir, baseName);
-      await copyFile(join(knowledgePath, sourcePath.replace(/\.\./g, "")), dest);
+      await copyFile(join(knowledgePath, sourcePath.replace(/\.\.+/g, "")), dest);
       chmodSync(dest, 0o644);
       return `https://home.sfunds.cn:8444/${encodeURIComponent(baseName)}`;
     } catch { /* fall through to base64 */ }
@@ -190,7 +190,7 @@ export async function exposeMediaFile(
 
   // Fallback: base64 encode (works everywhere, no server needed)
   try {
-    const fileBuffer = await readFile(join(knowledgePath, sourcePath.replace(/\.\./g, "")));
+    const fileBuffer = await readFile(join(knowledgePath, sourcePath.replace(/\.\.+/g, "")));
     return fileBuffer.toString("base64");
   } catch {
     return "";

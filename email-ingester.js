@@ -156,6 +156,7 @@ export class EmailIngester {
                             envelope: true,
                             bodyStructure: true,
                             internalDate: true,
+                            text: true,
                         });
                         if (!msg) {
                             console.log(`[EmailIngester] seq ${seq} returned null`);
