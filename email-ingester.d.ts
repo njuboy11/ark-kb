@@ -17,6 +17,7 @@ export interface EmailState {
     lastProcessedTime: string;
     lastScan: number;
     totalProcessed: number;
+    lastProcessedUID: number;
     failed: Array<{
         uid: number;
         messageId: string;

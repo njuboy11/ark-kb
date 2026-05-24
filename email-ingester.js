@@ -25,7 +25,7 @@ export class EmailIngester {
         this.llmClient = opts.llmClient;
         // State file alongside LanceDB (dbPath parent)
         this.emailStatePath = path.join(homedir(), ".ark-kb", "email-state.json");
-        this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, failed: [] };
+        this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, lastProcessedUID: 0, failed: [] };
     }
     // -------------------------------------------------------------------------
     // Init
@@ -135,6 +135,7 @@ export class EmailIngester {
                 const matches = Array.isArray(seqNums) ? seqNums : [];
                 console.log(`[EmailIngester] search criteria:`, JSON.stringify(criteria), `→ ${matches.length} matches`);
                 let count = 0;
+                let maxProcessedUID = this.state.lastProcessedUID;
                 let maxProcessedInternalDate = sinceTime;
                 for (const seq of matches) {
                     if (seq > 1000)
@@ -166,6 +167,9 @@ export class EmailIngester {
                         await this._processEmail(email);
                         // Success — remove from failed list, track processed time
                         this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+                        if (email.uid > maxProcessedUID) {
+                            maxProcessedUID = email.uid;
+                        }
                         if (email.internalDate > maxProcessedInternalDate) {
                             maxProcessedInternalDate = email.internalDate;
                         }
@@ -188,7 +192,7 @@ export class EmailIngester {
                     // emails (their INTERNALDATEs are in the past) but catches new arrivals
                     this.state.lastProcessedTime = new Date().toISOString();
                 }
-                // If nothing was processed → keep old timestamp → all emails retried
+                // If nothing was processed → keep old state → all emails retried
                 this.state.lastScan = Date.now();
                 if (count > 0) {
                     console.log(`[EmailIngester] Processed ${count} email(s) with attachments`);
