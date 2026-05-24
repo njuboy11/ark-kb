@@ -244,12 +244,9 @@ export class EmailIngester {
           this.state.lastProcessedTime = maxProcessedInternalDate;
         } else if (count > 0) {
           // All emails older than sinceTime → advance to now so next scan doesn't re-process
-          // IMAP SINCE is date-only — advance to day after latest processed email
-          // so next SINCE skips processed emails but catches new ones arriving today
-          const latestDay = new Date(maxProcessedInternalDate);
-          latestDay.setUTCHours(0, 0, 0, 0);
-          latestDay.setUTCDate(latestDay.getUTCDate() + 1);
-          this.state.lastProcessedTime = latestDay.toISOString();
+          // IMAP SINCE is date-only — advance to now so next scan skips processed
+          // emails (their INTERNALDATEs are in the past) but catches new arrivals
+          this.state.lastProcessedTime = new Date().toISOString();
         }
         // If nothing was processed → keep old timestamp → all emails retried
         this.state.lastScan = Date.now();
