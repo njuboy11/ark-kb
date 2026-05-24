@@ -65,6 +65,7 @@ export declare class EmailIngester {
      */
     routeEmail(subject: string, body: string, attachments: AttachmentInfo[], kbNames: string[]): Promise<string[]>;
     private _routeAttachment;
+    askLLM(systemPrompt: string, userContent: string): Promise<string>;
     askVLM(systemPrompt: string, imageBase64: string, mimeType?: string): Promise<string>;
     private _parseLLMJson;
     private _connect;

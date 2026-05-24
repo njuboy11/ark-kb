@@ -463,15 +463,7 @@ export class EmailIngester {
 
     if (textExts.includes(ext)) {
       // Stage 2a: Text/PDF content analysis
-      // Skip binary (non-text) attachments — they produce garbage for LLM
-      let isBinary = false;
-      try {
-        new TextDecoder("utf-8", { fatal: true }).decode(att.data.slice(0, 8192));
-      } catch {
-        isBinary = true;
-      }
-      if (!isBinary) {
-      let content = att.data.toString("utf-8").substring(0, 8000);
+      const content = att.data.toString("utf-8").substring(0, 8000);
       if (!this.llmClient.endpoint || !this.llmClient.apiKey) return [];
 
       try {
