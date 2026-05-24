@@ -198,7 +198,7 @@ export class KBManager {
       dimensions: this.vectorDim,
       batchSize: 16,
     });
-    const pdfParser = { api: "none" as const, endpoint: "", apiKey: "", model: "", params: {} };
+    const pdfParser = this.embedderConfig.pdfParser ?? { api: "none" as const, endpoint: "", apiKey: "", model: "", params: {} };
     return new Ingester(
       store,
       embedder,

@@ -515,7 +515,7 @@ export class EmailIngester {
 
   async askLLM(systemPrompt: string, userContent: string): Promise<string> {
     const { endpoint, apiKey, model } = this.llmClient;
-    const response = await fetch(`endpoint`, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -559,7 +559,7 @@ export class EmailIngester {
       temperature: 0.1,
     };
 
-    const response = await fetch(`endpoint`, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

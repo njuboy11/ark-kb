@@ -546,7 +546,7 @@ async function processPdf(
 
   if (chunks.length === 0) {
     // Empty PDF — still register it
-    const vectors = await embedder.embed(`[PDF:${filePath}]`);
+    const vectors = await embedder.embed(`[PDF:${base}]`);
     return [
       {
         id: `${base}_0_${now}`,

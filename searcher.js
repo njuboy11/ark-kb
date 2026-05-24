@@ -85,7 +85,13 @@ export class Searcher {
         const scoreMap = new Map();
         for (const r of normalizedVec) {
             const key = r.entry.id;
-            const isMedia = Searcher.IMG_EXTS.has(r.entry.file_type) || Searcher.VID_EXTS.has(r.entry.file_type);
+            // Text-mode images/videos have real text in chunk_text → treat as text
+            const ft = r.entry.file_type;
+            const isImg = Searcher.IMG_EXTS.has(ft);
+            const isVid = Searcher.VID_EXTS.has(ft);
+            const imageIsText = this.config.method.image === "text";
+            const videoIsText = this.config.method.video === "text";
+            const isMedia = (isImg && !imageIsText) || (isVid && !videoIsText);
             // Image/video get 100% vector weight — BM25 has nothing meaningful to contribute
             const w = isMedia ? 1.0 : vectorWeight;
             scoreMap.set(key, {
