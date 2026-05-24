@@ -180,7 +180,7 @@ export class ArkKB {
 
     const kp = this.config.knowledgePath;
     // Initialize failed list path (used by watcher callback)
-    this._failedListPath = path.join(kp, ".ark-kb-failed.json");
+    this._failedListPath = join(kp, ".ark-kb-failed.json");
     let total = 0;
     let files = 0;
 
