@@ -239,13 +239,17 @@ export class EmailIngester {
           // Skip emails without attachments (no-op, don't bump timestamp)
           if (email.attachments.length === 0) continue;
 
+          // Always advance UID past this email — whether it succeeds or fails.
+          // Failed emails go into the retry list and are re-fetched by UID separately;
+          // we must not stall the UID cursor on a permanently-failing email.
+          if (email.uid > maxProcessedUID) {
+            maxProcessedUID = email.uid;
+          }
+
           try {
             await this._processEmail(email);
-            // Success — remove from failed list, track processed time
+            // Success — remove from failed list
             this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
-            if (email.uid > maxProcessedUID) {
-              maxProcessedUID = email.uid;
-            }
             if (email.internalDate > maxProcessedInternalDate) {
               maxProcessedInternalDate = email.internalDate;
             }
@@ -253,7 +257,6 @@ export class EmailIngester {
           } catch (err: any) {
             console.error(`[EmailIngester] Failed to process UID ${email.uid}:`, err.message);
             this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
-            // DO NOT advance timestamp — failed emails will be retried next scan
           }
         }
 
@@ -648,12 +651,14 @@ export class EmailIngester {
         const { simpleParser } = await import("mailparser");
         const parsed = await simpleParser(msg.source);
         for (const att of parsed.attachments || []) {
-          // Skip inline images (email signatures, embeds) — only real attachments
-          const disposition = (att as any).contentDisposition ?? "attachment";
+          // Skip inline images (email signatures, embeds) — only real attachments.
+          // Default to "inline" when no explicit Content-Disposition; many email clients
+          // (Outlook, Apple Mail) omit the header for embedded signature images.
+          const disposition = (att as any).contentDisposition ?? "inline";
           if (disposition === "inline") continue;
           const filename = att.filename ?? `attachment_${attachments.length}`;
           const mimeType = att.contentType ?? "application/octet-stream";
-          const data = att.content instanceof Buffer ? att.content : Buffer.from(att.content || "");
+          const data = att.content instanceof Buffer ? att.content : Buffer.from(String(att.content || ""));
           if (data.length > 0) {
             attachments.push({ filename, mimeType, data });
           }
