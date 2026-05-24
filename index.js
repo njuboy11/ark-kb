@@ -540,8 +540,11 @@ export function createPlugin(ark) {
     };
 }
 console.log("[Ark KB] register() called");
-("[Ark KB] Already registered — skipping");
-return;
+let _registered = false;
+if (_registered) {
+    console.log("[Ark KB] Already registered — skipping");
+    return;
+}
 _registered = true;
 registerRuntimeLifecycle: (lifecycle) => void ;
 config ?  : Record;

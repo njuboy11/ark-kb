@@ -620,7 +620,12 @@ export function createPlugin(ark: ArkKB) {
 }
 
 console.log("[Ark KB] register() called");
+let _registered = false;
+
 export function register(api: {
+
+  if (_registered) return;
+  _registered = true;
   registerTool: (tool: any, opts?: any) => void;
   if (_registered) { console.log("[Ark KB] Already registered — skipping"); return; }
   _registered = true;
