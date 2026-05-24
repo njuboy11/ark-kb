@@ -9,6 +9,7 @@ import { Ingester } from "./ingester.js";
 import { FileWatcher } from "./watcher.js";
 import { KBManager, KBInfo } from "./kb-manager.js";
 import { ArkKBConfig, ResolvedConfig } from "./config.js";
+import { Searcher } from "./searcher.js";
 export declare class ArkKB {
     config: ResolvedConfig;
     /** Primary multi-KB driver */

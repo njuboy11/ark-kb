@@ -21,6 +21,7 @@ import {
   validateConfig,
 } from "./config.js";
 import { registerKBTools } from "./tools.js";
+import { Searcher } from "./searcher.js";
 
 // ============================================================================
 // ArkKB — Core class (used both by the plugin and for direct Node.js usage)
