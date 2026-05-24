@@ -240,8 +240,11 @@ export class EmailIngester {
 
         // Only advance lastProcessedTime for SUCCESSFULLY processed emails.
         // Failed emails stay behind the cursor → retried next scan.
-        if (count > 0) {
+        if (count > 0 && maxProcessedInternalDate !== sinceTime) {
           this.state.lastProcessedTime = maxProcessedInternalDate;
+        } else if (count > 0) {
+          // All emails older than sinceTime → advance to now so next scan doesn't re-process
+          this.state.lastProcessedTime = new Date().toISOString();
         }
         // If nothing was processed → keep old timestamp → all emails retried
         this.state.lastScan = Date.now();

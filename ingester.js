@@ -120,27 +120,19 @@ function chunkBySentence(text, maxTokens, overlapTokens) {
  * Extract text from PDF using MinerU API or built-in pdf-parse.
  */
 export async function extractPdfText(filePath, pdfConfig) {
-    // Try MinerU first if configured
     if (pdfConfig.api === "mineru" && pdfConfig.endpoint) {
-        try {
-            return await extractPdfMinerU(filePath, pdfConfig);
-        }
-        catch (mineruErr) {
-            console.warn(`[Ark KB] MinerU failed for ${basename(filePath)}, falling back to pdf-parse: ${mineruErr.message}`);
-            // Fall through to pdf-parse
-        }
+        return await extractPdfMinerU(filePath, pdfConfig);
     }
-    // Built-in pdf-parse fallback (v1.x loaded via createRequire for ESM compat)
+    // Built-in pdf-parse fallback
     try {
-        const { createRequire } = await import("node:module");
-        const _require = createRequire(import.meta.url);
-        const pdfParse = _require("pdf-parse");
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const pdfParse = (await import("pdf-parse")).default;
         const dataBuffer = await readFile(filePath);
         const data = await pdfParse(dataBuffer);
         return data.text || "";
     }
     catch (err) {
-        throw new Error(`PDF parsing failed for ${filePath}: both MinerU and pdf-parse failed. ${err.message}`);
+        throw new Error(`PDF parsing failed for ${filePath}: both MinerU and pdf-parse are unavailable. ${err.message}`);
     }
 }
 async function extractPdfMinerU(filePath, config) {

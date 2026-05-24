@@ -68,6 +68,7 @@ export declare class ArkKB {
      */
     /** Auto-detect LLM from openclaw.json. Priority: defaultModel → first text model with apiKey (top-down). */
     private getUserLLM;
+    private _emailIngesterInitialized;
     private _initEmailIngester;
     private _retryFailed;
     private _markFailed;

@@ -25,16 +25,12 @@ export class EmailIngester {
         this.llmClient = opts.llmClient;
         // State file alongside LanceDB (dbPath parent)
         this.emailStatePath = path.join(homedir(), ".ark-kb", "email-state.json");
-        this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, failed: [], permanentFailures: [] };
+        this.state = { lastProcessedTime: new Date(0).toISOString(), lastScan: 0, totalProcessed: 0, failed: [] };
     }
     // -------------------------------------------------------------------------
     // Init
     // -------------------------------------------------------------------------
     async init() {
-        if (this._initialized) {
-            console.log("[EmailIngester] Already initialized — skipping");
-            return;
-        }
         if (!this.config.enabled) {
             console.log("[EmailIngester] Disabled — skipping");
             return;
@@ -87,10 +83,16 @@ export class EmailIngester {
         try {
             const lock = await this.imapClient.getMailboxLock("INBOX");
             try {
-                // Step 1: Use lastProcessedTime for forward scanning.
-                // Failed emails are retried separately by UID below.
+                // Step 1: Build SINCE time — if there are recent failed emails, use the oldest one
                 const retryableFailed = this.state.failed.filter(f => f.retries < 2);
-                const sinceTime = this.state.lastProcessedTime;
+                let sinceTime;
+                if (retryableFailed.length > 0) {
+                    // Use the oldest failed email's arrivedAt time
+                    sinceTime = retryableFailed.reduce((oldest, f) => f.arrivedAt < oldest ? f.arrivedAt : oldest, retryableFailed[0].arrivedAt);
+                }
+                else {
+                    sinceTime = this.state.lastProcessedTime;
+                }
                 // Step 2: Fetch failed list emails with retries < 2 separately
                 if (retryableFailed.length > 0) {
                     const failedUids = retryableFailed.map(f => f.uid);
@@ -114,13 +116,6 @@ export class EmailIngester {
                             const failedEntry = this.state.failed.find(f => f.uid === email.uid);
                             if (!failedEntry)
                                 continue;
-                            // Skip if this UID has permanently failed (auth error etc.)
-                            if (this.state.permanentFailures && this.state.permanentFailures.includes(email.uid)) {
-                                console.log(`[EmailIngester] Skipping UID ${email.uid} — permanent failure, removing from retry list`);
-                                this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
-                                this._saveState();
-                                continue;
-                            }
                             try {
                                 await this._processEmail(email);
                                 // Success — remove from failed list
@@ -164,42 +159,32 @@ export class EmailIngester {
                         console.log(`[EmailIngester] Skipping UID ${email.uid} — permanently failed`);
                         continue;
                     }
-                    // Skip if uid is in permanent failures (auth error etc.)
-                    if (this.state.permanentFailures && this.state.permanentFailures.includes(email.uid)) {
-                        console.log(`[EmailIngester] Skipping UID ${email.uid} — permanent auth failure`);
-                        // Also remove from failed list if present
-                        this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
-                        continue;
-                    }
                     // Skip emails without attachments (no-op, don't bump timestamp)
                     if (email.attachments.length === 0)
                         continue;
-                    // Always advance the timestamp cursor past this email
-                    // so it won't be re-scanned. Failed emails are retried by UID separately.
-                    if (email.internalDate > maxProcessedInternalDate) {
-                        maxProcessedInternalDate = email.internalDate;
-                    }
                     try {
                         await this._processEmail(email);
-                        // Success — remove from failed list
+                        // Success — remove from failed list, track processed time
                         this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+                        if (email.internalDate > maxProcessedInternalDate) {
+                            maxProcessedInternalDate = email.internalDate;
+                        }
                         count++;
                     }
                     catch (err) {
                         console.error(`[EmailIngester] Failed to process UID ${email.uid}:`, err.message);
                         this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
+                        // DO NOT advance timestamp — failed emails will be retried next scan
                     }
                 }
-                // Always advance the timestamp to the latest scanned email, even if
-                // some failed. Individual retries are handled by UID in the next scan.
-                // Always advance timestamp past the scan window
-                // If no email had a later internalDate, advance to now
-                if (maxProcessedInternalDate !== sinceTime) {
+                // Only advance lastProcessedTime for SUCCESSFULLY processed emails.
+                // Failed emails stay behind the cursor → retried next scan.
+                if (count > 0 && maxProcessedInternalDate !== sinceTime) {
                     this.state.lastProcessedTime = maxProcessedInternalDate;
-                } else {
-                    // No newer emails — bump to current time so next scan doesn't re-process
+                }
+                else if (count > 0) {
+                    // All emails older than sinceTime → advance to now so next scan doesn't re-process
                     this.state.lastProcessedTime = new Date().toISOString();
-                    console.log(`[EmailIngester] All emails older than ${sinceTime} — advancing timestamp to now`);
                 }
                 // If nothing was processed → keep old timestamp → all emails retried
                 this.state.lastScan = Date.now();
@@ -214,9 +199,6 @@ export class EmailIngester {
         }
         catch (err) {
             console.error("[EmailIngester] Scan error:", err.message);
-        }
-        finally {
-            this._scanning = false;
         }
     }
     // -------------------------------------------------------------------------
@@ -291,19 +273,8 @@ export class EmailIngester {
                         break;
                     }
                     catch (err) {
-                        // Auth errors (401) = permanent failure, don't retry
-                        const isAuthError = err.message && (
-                            err.message.includes("401") ||
-                            err.message.includes("user authenticate failed") ||
-                            err.message.includes("A0202")
-                        );
-                        if (isAuthError) {
-                            console.error(`[EmailIngester] Auth failure for UID ${email.uid}: ${err.message} — marking permanent`);
-                            this._recordPermanentFailure(email.uid);
-                            // Don't delete dest file — hash-dedup on next scan will skip it
-                            break;
-                        }
-                        else if (retries >= this.config.maxRetries) {
+                        retries++;
+                        if (retries > this.config.maxRetries) {
                             this._recordFailure(email.uid, email.messageId, `Failed to ingest ${path.basename(destPath)}: ${err.message}`, email.internalDate);
                             try {
                                 fs.unlinkSync(destPath);
@@ -311,7 +282,6 @@ export class EmailIngester {
                             catch { }
                         }
                         else {
-                            retries++;
                             await this._sleep(1000 * retries);
                         }
                     }
@@ -590,7 +560,6 @@ export class EmailIngester {
                     lastScan: loaded.lastScan ?? 0,
                     totalProcessed: loaded.totalProcessed ?? 0,
                     failed: loaded.failed ?? [],
-                    permanentFailures: loaded.permanentFailures ?? [],
                 };
             }
         }
@@ -619,17 +588,6 @@ export class EmailIngester {
         }
         // Clean up permanently failed (retries >= 2)
         this.state.failed = this.state.failed.filter(f => f.retries < 2);
-        this._saveState();
-    }
-    _recordPermanentFailure(uid) {
-        if (!this.state.permanentFailures) {
-            this.state.permanentFailures = [];
-        }
-        if (!this.state.permanentFailures.includes(uid)) {
-            this.state.permanentFailures.push(uid);
-        }
-        // Also remove from retryable failed list
-        this.state.failed = this.state.failed.filter(f => f.uid !== uid);
         this._saveState();
     }
     // -------------------------------------------------------------------------

@@ -101,13 +101,6 @@ export class ArkKB {
                 image: this.config.embedding.method.image,
                 video: this.config.embedding.method.video,
             },
-            pdfParser: {
-                api: "mineru",
-                endpoint: this.config.pdfParser.endpoint,
-                apiKey: this.config.pdfParser.apiKey,
-                model: this.config.pdfParser.model,
-                params: this.config.pdfParser.params,
-            },
         });
         // Embedder for query embedding (used in search)
         this.embedder = new Embedder({
@@ -431,7 +424,10 @@ export class ArkKB {
             return { endpoint: "", apiKey: "", model: "" };
         }
     }
+    _emailIngesterInitialized = false;
     async _initEmailIngester(api) {
+        if (this._emailIngesterInitialized)
+            return;
         if (!this.config.emailIngester.enabled)
             return;
         const llmClient = this.getUserLLM();
@@ -442,6 +438,7 @@ export class ArkKB {
             llmClient,
         });
         await this.emailIngester.init();
+        this._emailIngesterInitialized = true;
     }
     async _retryFailed(knowledgePath) {
         const fs = await import("node:fs");
