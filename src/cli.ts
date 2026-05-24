@@ -356,23 +356,27 @@ async function main(): Promise<void> {
           console.error("❌ Cannot use both --kb and --all");
           process.exit(1);
         }
-        if (!args.confirm) {
-          const target = rebuildAll ? "all KBs" : `KB "${args.kb}"`;
-          const kbList = rebuildAll
-            ? (await core.kbManager.listKBs()).map(k => k.name)
-            : [args.kb as string];
-          console.log(`⚠️  This will DROP and REBUILD ${target}`);
-          for (const name of kbList) {
-            console.log(`   - Drop table "${name}" and recreate`);
-            console.log(`   - Re-ingest all files from ${resolved.knowledgePath}/${name}`);
-          }
-          console.log(`\n   To confirm: ark-kb rebuild ${rebuildAll ? "--all" : `--kb ${args.kb}`} --confirm`);
-          process.exit(1);
+
+        // Show warning + y/n prompt
+        const target = rebuildAll ? "all KBs" : `KB "${args.kb}"`;
+        const kbList = rebuildAll
+          ? (await core.kbManager.listKBs()).map(k => k.name)
+          : [args.kb as string];
+        console.log(`⚠️  This will DROP and REBUILD ${target}`);
+        for (const name of kbList) {
+          const info = (await core.kbManager.listKBs()).find(k => k.name === name);
+          console.log(`   - Table "${name}": ${info?.chunkCount ?? "?"} chunks, ${info?.fileCount ?? "?"} files will be lost`);
+          console.log(`   - All files from ${resolved.knowledgePath}/${name} will be re-ingested`);
+        }
+        const ok = await promptYN("\nContinue? (y/N): ");
+        if (!ok) {
+          console.log("Aborted.");
+          process.exit(0);
         }
 
         const rStart = Date.now();
         if (rebuildAll) {
-          console.log("[Ark KB] Rebuilding all KBs...\n");
+          console.log("\n[Ark KB] Rebuilding all KBs...\n");
           const results = await core.kbManager.rebuildAll();
           for (const r of results) {
             console.log(`  ✅ ${r.kbName}: rebuilt, ${r.healed} re-ingested, ${r.skipped} skipped`);
@@ -384,7 +388,7 @@ async function main(): Promise<void> {
           );
         } else {
           const name = args.kb as string;
-          console.log(`[Ark KB] Rebuilding: ${name}`);
+          console.log(`\n[Ark KB] Rebuilding: ${name}`);
           const result = await core.kbManager.rebuildKB(name);
           console.log(`✅ ${name} rebuilt: ${result.healed} re-ingested, ${result.skipped} skipped (${Date.now() - rStart}ms)`);
         }
@@ -469,6 +473,20 @@ function fmtBytes(bytes: number): string {
   const units = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2) + " " + units[i];
+}
+
+async function promptYN(question: string): Promise<boolean> {
+  const { createInterface } = await import("node:readline");
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return new Promise((resolve) => {
+    rl.question(question, (answer: string) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes");
+    });
+  });
 }
 
 function findConfigPath(): string | null {
