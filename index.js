@@ -126,6 +126,7 @@ export class ArkKB {
     // Init
     // -------------------------------------------------------------------------
     async init(api) {
+        console.log("[Ark KB] init() called");
         if (this._initialized)
             return;
         // KBManager.init() handles auto-migration + scanning + store init
@@ -458,6 +459,7 @@ export class ArkKB {
     }
     _emailIngesterInitialized = false;
     async _initEmailIngester(api) {
+        console.log("[Ark KB] _initEmailIngester() called");
         if (this._emailIngesterInitialized)
             return;
         if (!this.config.emailIngester.enabled)

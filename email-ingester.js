@@ -34,8 +34,7 @@ export class EmailIngester {
     _initialized = false;
     async init() {
         if (this._initialized) {
-            console.log("[EmailIngester] Already initialized — skipping duplicate call");
-            return;
+            return; // Already initialized
         }
         if (!this.config.enabled) {
             console.log("[EmailIngester] Disabled — skipping");
