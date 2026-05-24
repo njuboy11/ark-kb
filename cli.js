@@ -78,7 +78,9 @@ async function main() {
     const resolved = resolveConfig(fileResult.config);
     // CLI doesn't need the watcher
     fileResult.config.watcher = { ...(fileResult.config.watcher ?? {}), enabled: false };
-    const core = new ArkKB(fileResult.config);
+    // CLI mode: skip email ingester initialization
+    const cliConfig = { ...fileResult.config, emailIngester: { ...(fileResult.config.emailIngester ?? {}), enabled: false } };
+    const core = new ArkKB(cliConfig);
     await core.init();
     // Shared --kb option
     const kbName = args.kb;
