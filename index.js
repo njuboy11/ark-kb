@@ -65,7 +65,6 @@ export class ArkKB {
     _defaultSearcher;
     _failedListPath = "";
     constructor(rawConfig = {}) {
-        console.log("[Ark KB] Constructor called — stack:", new Error().stack?.split('\n').slice(1, 5).join('\n'));
         this.config = resolveConfig(rawConfig);
         const knowledgePath = expandPath(this.config.knowledgePath);
         const dbPath = expandPath(this.config.storage.dbPath);
@@ -541,67 +540,74 @@ export function createPlugin(ark) {
     };
 }
 console.log("[Ark KB] register() called");
-export function register(api) {
-    const pluginDir = import.meta.dirname;
-    const standalonePath = join(pluginDir, "plugin-config.json");
-    const fileResult = loadConfigFromFile(standalonePath);
-    if (fileResult.errors.length > 0) {
-        console.error("[Ark KB] Config validation FAILED in", standalonePath);
-        for (const err of fileResult.errors) {
-            console.error(`  - ${err}`);
-        }
-        throw new Error(`[Ark KB] Configuration error in ${standalonePath}: ${fileResult.errors.join("; ")}`);
+("[Ark KB] Already registered — skipping");
+return;
+_registered = true;
+registerRuntimeLifecycle: (lifecycle) => void ;
+config ?  : Record;
+pluginConfig ?  : Record;
+void {
+    const: pluginDir = import.meta.dirname,
+    const: standalonePath = join(pluginDir, "plugin-config.json"),
+    const: fileResult = loadConfigFromFile(standalonePath),
+    if(fileResult) { }, : .errors.length > 0
+};
+{
+    console.error("[Ark KB] Config validation FAILED in", standalonePath);
+    for (const err of fileResult.errors) {
+        console.error(`  - ${err}`);
     }
-    let arkConfig;
-    let fromOpenClaw = false;
-    if (fileResult.config) {
-        console.log("[Ark KB] Loading config from standalone file:", standalonePath);
-        arkConfig = fileResult.config;
-    }
-    else {
-        const examplePath = join(pluginDir, "plugin-config.example.json");
-        if (existsSync(examplePath)) {
-            console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
-            copyFileSync(examplePath, standalonePath);
-            console.log("[Ark KB] Created", standalonePath, "— edit this file to configure.");
-            const retry = loadConfigFromFile(standalonePath);
-            if (retry.config) {
-                arkConfig = retry.config;
-            }
-            else {
-                console.log("[Ark KB] Falling back to openclaw.json");
-                arkConfig = (api.pluginConfig ?? api.config ?? {});
-                fromOpenClaw = true;
-            }
+    throw new Error(`[Ark KB] Configuration error in ${standalonePath}: ${fileResult.errors.join("; ")}`);
+}
+let arkConfig;
+let fromOpenClaw = false;
+if (fileResult.config) {
+    console.log("[Ark KB] Loading config from standalone file:", standalonePath);
+    arkConfig = fileResult.config;
+}
+else {
+    const examplePath = join(pluginDir, "plugin-config.example.json");
+    if (existsSync(examplePath)) {
+        console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
+        copyFileSync(examplePath, standalonePath);
+        console.log("[Ark KB] Created", standalonePath, "— edit this file to configure.");
+        const retry = loadConfigFromFile(standalonePath);
+        if (retry.config) {
+            arkConfig = retry.config;
         }
         else {
-            console.log("[Ark KB] No config files found, falling back to openclaw.json");
+            console.log("[Ark KB] Falling back to openclaw.json");
             arkConfig = (api.pluginConfig ?? api.config ?? {});
             fromOpenClaw = true;
         }
     }
-    if (fromOpenClaw) {
-        const fallbackErrors = validateConfig(arkConfig);
-        if (fallbackErrors.length > 0) {
-            console.error("[Ark KB] Config validation FAILED (openclaw.json):");
-            for (const err of fallbackErrors) {
-                console.error(`  - ${err}`);
-            }
-            throw new Error(`[Ark KB] Configuration error in openclaw.json: ${fallbackErrors.join("; ")}`);
-        }
+    else {
+        console.log("[Ark KB] No config files found, falling back to openclaw.json");
+        arkConfig = (api.pluginConfig ?? api.config ?? {});
+        fromOpenClaw = true;
     }
-    const ark = new ArkKB(arkConfig);
-    for (const tool of ark.getTools()) {
-        api.registerTool(tool);
-    }
-    ark.init().catch((err) => console.error('[Ark KB] Background init failed:', err));
-    api.registerRuntimeLifecycle({
-        id: "ark-kb",
-        async shutdown() {
-            await ark.shutdown();
-        },
-    });
 }
+if (fromOpenClaw) {
+    const fallbackErrors = validateConfig(arkConfig);
+    if (fallbackErrors.length > 0) {
+        console.error("[Ark KB] Config validation FAILED (openclaw.json):");
+        for (const err of fallbackErrors) {
+            console.error(`  - ${err}`);
+        }
+        throw new Error(`[Ark KB] Configuration error in openclaw.json: ${fallbackErrors.join("; ")}`);
+    }
+}
+const ark = new ArkKB(arkConfig);
+for (const tool of ark.getTools()) {
+    api.registerTool(tool);
+}
+ark.init().catch((err) => console.error('[Ark KB] Background init failed:', err));
+api.registerRuntimeLifecycle({
+    id: "ark-kb",
+    async shutdown() {
+        await ark.shutdown();
+    },
+});
 // ============================================================================
 // Helpers
 // ============================================================================

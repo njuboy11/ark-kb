@@ -87,7 +87,6 @@ export class ArkKB {
   private _failedListPath = "";
 
   constructor(rawConfig: ArkKBConfig = {}) {
-    console.log("[Ark KB] Constructor called — stack:", new Error().stack?.split('\n').slice(1,5).join('\n'));
     this.config = resolveConfig(rawConfig);
 
     const knowledgePath = expandPath(this.config.knowledgePath);
@@ -623,6 +622,8 @@ export function createPlugin(ark: ArkKB) {
 console.log("[Ark KB] register() called");
 export function register(api: {
   registerTool: (tool: any, opts?: any) => void;
+  if (_registered) { console.log("[Ark KB] Already registered — skipping"); return; }
+  _registered = true;
   registerRuntimeLifecycle: (lifecycle: { id: string; shutdown: () => Promise<void> }) => void;
   config?: Record<string, any>;
   pluginConfig?: Record<string, any>;

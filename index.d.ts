@@ -300,13 +300,11 @@ export declare function createPlugin(ark: ArkKB): {
 };
 export declare function register(api: {
     registerTool: (tool: any, opts?: any) => void;
-    registerRuntimeLifecycle: (lifecycle: {
-        id: string;
-        shutdown: () => Promise<void>;
-    }) => void;
-    config?: Record<string, any>;
-    pluginConfig?: Record<string, any>;
-}): void;
+    if(_registered: any): any;
+}, { console, log }: {
+    console: any;
+    log: any;
+}): any;
 export interface IngesterConfig {
     chunking: ResolvedConfig["chunking"];
     pdfParser: ResolvedConfig["pdfParser"];
