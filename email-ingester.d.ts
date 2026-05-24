@@ -70,6 +70,7 @@ export declare class EmailIngester {
     private _parseEmail;
     private _loadState;
     private _saveState;
+    private _recordPermanentFailure;
     private _recordFailure;
     shutdown(): Promise<void>;
     private _sleep;

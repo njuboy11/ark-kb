@@ -608,6 +608,16 @@ export class EmailIngester {
             console.error("[EmailIngester] Failed to save state:", err.message);
         }
     }
+    _recordPermanentFailure(uid) {
+        if (!this.state.permanentFailures) {
+            this.state.permanentFailures = [];
+        }
+        if (!this.state.permanentFailures.includes(uid)) {
+            this.state.permanentFailures.push(uid);
+        }
+        this.state.failed = this.state.failed.filter(f => f.uid !== uid);
+        this._saveState();
+    }
     _recordFailure(uid, messageId, error, arrivedAt) {
         const existing = this.state.failed.find(f => f.uid === uid);
         if (existing) {

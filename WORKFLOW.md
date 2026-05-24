@@ -41,3 +41,8 @@ node -e "require('./index.js')"
 - **唯一修改 JS 的入口**：`./compile.sh`
 - 改代码流程：改 `src/*.ts` → `./compile.sh` → 自动解锁/编译/重锁
 - 禁止直接 `npx tsc`（编译前没解锁会报错）
+
+## 7. ESLint + TypeScript 检查（编译前强制）
+- 编译前自动跑 `npx eslint src/` 和 `tsc --noEmit`
+- 有任何错误 → 编译中止
+- 空 catch 块必须有 console.warn/error 日志

@@ -691,6 +691,17 @@ export class EmailIngester {
     }
   }
 
+  private _recordPermanentFailure(uid: number): void {
+    if (!this.state.permanentFailures) {
+      this.state.permanentFailures = [];
+    }
+    if (!this.state.permanentFailures.includes(uid)) {
+      this.state.permanentFailures.push(uid);
+    }
+    this.state.failed = this.state.failed.filter(f => f.uid !== uid);
+    this._saveState();
+  }
+
   private _recordFailure(uid: number, messageId: string, error: string, arrivedAt: string): void {
     const existing = this.state.failed.find(f => f.uid === uid);
     if (existing) {
