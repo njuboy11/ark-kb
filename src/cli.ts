@@ -10,6 +10,8 @@
  *   ark-kb create <name>            Create a new knowledge base
  *   ark-kb delete <name>             Delete a knowledge base
  *   ark-kb list                     List all knowledge bases
+ *   ark-kb compact --kb <name>      Compact & cleanup a KB (merge fragments, prune old versions)
+ *   ark-kb compact --all            Compact all KBs
  *   ark-kb config                   Print resolved config
  */
 
@@ -210,6 +212,103 @@ async function main(): Promise<void> {
         break;
       }
 
+      case "compact": {
+        const isAll = !!args.all;
+        const isDryRun = !!args["dry-run"];
+        const cleanupDays = (args["cleanup-days"] as number) ?? 7;
+        const aggressive = !!args.aggressive || cleanupDays < 7;
+        const op = (args.op as string) ?? "all";
+        const validOps = ["all", "compact", "prune", "index"];
+
+        if (!args.kb && !isAll) {
+          console.error("❌ Must specify --kb <name> or --all");
+          process.exit(1);
+        }
+        if (isAll && args.kb) {
+          console.error("❌ Cannot use both --kb and --all");
+          process.exit(1);
+        }
+        if (!validOps.includes(op)) {
+          console.error(`❌ Invalid --op: ${op}. Must be one of: ${validOps.join(", ")}`);
+          process.exit(1);
+        }
+
+        const options = {
+          op: op as "all" | "compact" | "prune" | "index",
+          cleanupDays,
+          aggressive,
+          dryRun: isDryRun,
+        };
+
+        if (aggressive && cleanupDays >= 7 && !args.aggressive) {
+          // auto-inferred aggressive from cleanupDays < 7
+        } else if (aggressive) {
+          // user explicitly passed --aggressive
+        }
+
+        if (isDryRun) {
+          console.log("[Ark KB] DRY RUN — no changes will be made\n");
+        }
+
+        const label = isAll ? "all KBs" : args.kb;
+        const plural = isAll ? "s" : "";
+        if (op === "all") {
+          if (cleanupDays < 7) {
+            console.log(`[Ark KB] ⚠️  cleanup-days=${cleanupDays} < 7-day safety period, enabling aggressive mode\n`);
+          }
+          console.log(`[Ark KB] Compacting${isAll ? " all" : ""}: ${label}\n`);
+        } else {
+          console.log(`[Ark KB] Compacting${isAll ? " all" : ""}: ${label} (${op} only)\n`);
+        }
+
+        const totalStart = Date.now();
+        let totalBytes = 0;
+        let totalFrags = 0;
+
+        const doCompact = async (kbName: string) => {
+          const stats = await core.kbManager.compact(kbName, options);
+          if (!stats) return;
+          const kb = isAll ? `\u256d\u2500 ${stats.kbName} \u2500\u256e\n` : "";
+          if (kb) console.log(kb);
+          if (stats.compaction && (options.op === "all" || options.op === "compact")) {
+            const c = stats.compaction;
+            console.log(
+              `  \uD83D\uDD04 Compaction:  ${c.fragmentsBefore} \u2192 ${c.fragmentsAfter} fragments, freed ${fmtBytes(c.bytesFreed)}`
+            );
+            totalFrags += c.fragmentsRemoved;
+          }
+          if (stats.prune && (options.op === "all" || options.op === "prune")) {
+            const p = stats.prune;
+            console.log(
+              `  \uD83D\uDDD1 Prune:      ${p.oldVersionsRemoved} versions removed, ${fmtBytes(p.bytesRemoved)} freed`
+            );
+          }
+          if (stats.index && (options.op === "all" || options.op === "index")) {
+            console.log(
+              `  \uD83D\uDCCA Index:      ${stats.index.fragmentsRemapped} fragments remapped`
+            );
+          }
+          totalBytes += (stats.compaction?.bytesFreed ?? 0) + (stats.prune?.bytesRemoved ?? 0);
+          console.log(`\u2705 ${stats.kbName} compacted (${stats.durationMs}ms)`);
+        };
+
+        if (isAll) {
+          const kbs = await core.kbManager.listKBs();
+          for (const kb of kbs) {
+            await doCompact(kb.name);
+          }
+          const dur = Date.now() - totalStart;
+          console.log(
+            `\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n` +
+            `\u2705 All ${kbs.length} KBs compacted (${dur}ms)\n` +
+            `   Total: ${fmtBytes(totalBytes)} freed, ${totalFrags} fragments merged`
+          );
+        } else {
+          await doCompact(args.kb as string);
+        }
+        break;
+      }
+
       default:
         console.error(`❌ Unknown command: ${cmd}`);
         printHelp();
@@ -234,6 +333,11 @@ interface ParsedArgs {
   top?: number;
   verbose?: boolean;
   config?: string;
+  all?: boolean;
+  "cleanup-days"?: number;
+  op?: string;
+  aggressive?: boolean;
+  "dry-run"?: boolean;
   [k: string]: unknown;
 }
 
@@ -258,12 +362,31 @@ function parseArgs(raw: string[]): ParsedArgs {
     } else if (raw[i] === "--config" && raw[i + 1]) {
       result.config = raw[i + 1];
       i++;
+    } else if (raw[i] === "--all") {
+      result.all = true;
+    } else if (raw[i] === "--cleanup-days" && raw[i + 1]) {
+      result["cleanup-days"] = parseInt(raw[i + 1], 10);
+      i++;
+    } else if (raw[i] === "--op" && raw[i + 1]) {
+      result.op = raw[i + 1];
+      i++;
+    } else if (raw[i] === "--aggressive") {
+      result.aggressive = true;
+    } else if (raw[i] === "--dry-run") {
+      result["dry-run"] = true;
     } else if (!raw[i].startsWith("--")) {
       result._.push(raw[i]);
     }
     i++;
   }
   return result;
+}
+
+function fmtBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2) + " " + units[i];
 }
 
 function findConfigPath(): string | null {

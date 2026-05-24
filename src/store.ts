@@ -8,6 +8,27 @@ import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
+/**
+ * Statistics from a compact operation.
+ */
+export interface CompactionStats {
+  kbName: string;
+  durationMs: number;
+  compaction?: {
+    fragmentsBefore: number;
+    fragmentsAfter: number;
+    fragmentsRemoved: number;
+    bytesFreed: number;
+  };
+  prune?: {
+    oldVersionsRemoved: number;
+    bytesRemoved: number;
+  };
+  index?: {
+    fragmentsRemapped: number;
+  };
+}
+
 /** Helper: collect all rows from LanceDB RecordBatchIterator (no .toArray()) */
 async function collectRows(results: any): Promise<any[]> {
   if (Array.isArray(results)) return results;
@@ -297,6 +318,95 @@ export class KnowledgeStore {
       .execute();
     const rows = await collectRows(results);
     return rows.length > 0;
+  }
+
+  /**
+   * Compact this KB: merge fragments + prune old versions.
+   * Returns statistics about what was cleaned up.
+   */
+  async compact(options: {
+    cleanupDays: number;
+    aggressive: boolean;
+    op: "all" | "compact" | "prune" | "index";
+    dryRun?: boolean;
+  }): Promise<CompactionStats> {
+    const cleanupMs = Date.now() - options.cleanupDays * 86_400_000;
+    const cleanupOlderThan = new Date(cleanupMs);
+
+    const startFragments = await this._countFragments();
+    const startTime = Date.now();
+
+    // Dry-run: return estimated stats without actually optimizing
+    if (options.dryRun) {
+      return {
+        kbName: this.tableName,
+        durationMs: Date.now() - startTime,
+        compaction: (options.op === "all" || options.op === "compact")
+          ? { fragmentsBefore: startFragments, fragmentsAfter: startFragments, fragmentsRemoved: 0, bytesFreed: 0 }
+          : undefined,
+        prune: (options.op === "all" || options.op === "prune")
+          ? { oldVersionsRemoved: 0, bytesRemoved: 0 }
+          : undefined,
+        index: (options.op === "all" || options.op === "index")
+          ? { fragmentsRemapped: 0 }
+          : undefined,
+      };
+    }
+
+    // Build optimize options based on op
+    const compactOpts: any = {};
+    if (options.op === "all" || options.op === "compact") {
+      compactOpts.compact = {}; // triggers fragment compaction
+    }
+    if (options.op === "all" || options.op === "prune") {
+      compactOpts.prune = {
+        olderThan: cleanupOlderThan,
+        deleteUnverified: options.aggressive,
+      };
+    }
+    if (options.op === "all" || options.op === "index") {
+      compactOpts.index = {}; // triggers vector index remapping
+    }
+
+    const result = await this.table.optimize(compactOpts);
+    const endFragments = await this._countFragments();
+
+    return {
+      kbName: this.tableName,
+      durationMs: Date.now() - startTime,
+      compaction: result.compaction
+        ? {
+            fragmentsBefore: startFragments,
+            fragmentsAfter: endFragments,
+            fragmentsRemoved: result.compaction.fragmentsRemoved ?? 0,
+            bytesFreed: 0, // LanceDB doesn't expose per-file sizes
+          }
+        : undefined,
+      prune: result.prune
+        ? {
+            oldVersionsRemoved: result.prune.oldVersionsRemoved ?? 0,
+            bytesRemoved: result.prune.bytesRemoved ?? 0,
+          }
+        : undefined,
+      index: result.index
+        ? { fragmentsRemapped: result.index.fragmentsRemapped ?? 0 }
+        : undefined,
+    };
+  }
+
+  private async _countFragments(): Promise<number> {
+    try {
+      const arrow = await this.table.query().select(["vector"]).toArrow();
+      // LanceDB doesn't expose fragment count directly in JS SDK,
+      // so we estimate from the data directory
+      const dataDir = path.join(this.config.dbPath, `${this.tableName}.lance`, "data");
+      if (fs.existsSync(dataDir)) {
+        return fs.readdirSync(dataDir).filter(f => f.endsWith(".lance")).length;
+      }
+      return 0;
+    } catch {
+      return 0;
+    }
   }
 
   /**

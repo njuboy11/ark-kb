@@ -7,12 +7,28 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ResolvedConfig } from "./config.js";
-import { KnowledgeStore } from "./store.js";
+import { KnowledgeStore, type CompactionStats } from "./store.js";
 import { Ingester, hashFile } from "./ingester.js";
 import { Embedder } from "./embedder.js";
 
 // Re-export types for consumers
 export type { KBEntry, KBSearchResult, StoreOptions } from "./store.js";
+
+/** Options for compact operation. */
+export interface CompactOptions {
+  op: "all" | "compact" | "prune" | "index";
+  cleanupDays: number;
+  aggressive: boolean;
+  dryRun: boolean;
+}
+
+/** Result of compactAll. */
+export interface CompactionAllResult {
+  results: CompactionStats[];
+  totalBytesFreed: number;
+  totalFragmentsMerged: number;
+  totalDurationMs: number;
+}
 
 export interface KBInfo {
   name: string;
@@ -318,6 +334,53 @@ export class KBManager {
    */
   getIngester(name: string): Ingester | undefined {
     return this.ingesters.get(name);
+  }
+
+  /**
+   * Compact a single KB: merge fragments, prune old versions, remap index.
+   */
+  async compact(
+    kbName: string,
+    options: CompactOptions
+  ): Promise<CompactionStats | null> {
+    const store = this.kbs.get(kbName);
+    if (!store) {
+      console.warn(`[KBManager] compact: KB "${kbName}" not found`);
+      return null;
+    }
+    const stats = await store.compact({
+      cleanupDays: options.cleanupDays,
+      aggressive: options.aggressive,
+      op: options.op,
+      dryRun: options.dryRun,
+    });
+    return stats;
+  }
+
+  /**
+   * Compact all knowledge bases.
+   */
+  async compactAll(options: CompactOptions): Promise<CompactionAllResult> {
+    const results: CompactionStats[] = [];
+    for (const name of this.kbs.keys()) {
+      const stats = await this.compact(name, options);
+      if (stats) results.push(stats);
+    }
+    return {
+      results,
+      totalBytesFreed: results.reduce(
+        (s, r) =>
+          s +
+          (r.compaction?.bytesFreed ?? 0) +
+          (r.prune?.bytesRemoved ?? 0),
+        0
+      ),
+      totalFragmentsMerged: results.reduce(
+        (s, r) => s + (r.compaction?.fragmentsRemoved ?? 0),
+        0
+      ),
+      totalDurationMs: results.reduce((s, r) => s + r.durationMs, 0),
+    };
   }
 
   /**
