@@ -102,34 +102,12 @@ export class ArkKB {
       mkdirSync(dbPath, { recursive: true });
     }
 
-    // Create KBManager — drives all KB operations
+    // Create KBManager — pass full config to avoid field-dropping bugs
     this.kbManager = new KBManager({
       knowledgePath,
       dbPath,
       vectorDim: this.config.embedding.dimensions,
-      embedderConfig: {
-        api: this.config.embedding.api,
-        endpoint: this.config.embedding.endpoint,
-        apiKey: this.config.embedding.apiKey,
-        model: this.config.embedding.model,
-        chunking: this.config.chunking,
-        pdfParser: this.config.pdfParser,
-      },
-      videoConfig: {
-        endpoint: this.config.videoSummarizer.endpoint,
-        apiKey: this.config.videoSummarizer.apiKey,
-        maxFrames: this.config.videoSummarizer.maxFrames,
-        timeoutMs: 120_000,
-      },
-      imageConfig: {
-        endpoint: this.config.imageSummarizer.endpoint,
-        apiKey: this.config.imageSummarizer.apiKey,
-        timeoutMs: 60_000,
-      },
-      embeddingMethod: {
-        image: this.config.embedding.method.image,
-        video: this.config.embedding.method.video,
-      },
+      fullConfig: this.config,
     });
 
     // Embedder for query embedding (used in search)

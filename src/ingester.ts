@@ -544,7 +544,6 @@ async function processPdf(
   chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
   pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
 ): Promise<KBEntry[]> {
-  console.log(`[Ark KB] processPdf: ${basename(filePath)} api=${pdfConfig.api} ep=${pdfConfig.endpoint?.slice(0,30)} key=${!!pdfConfig.apiKey} model=${pdfConfig.model}`);
   const base = basename(filePath);
   const fileHash = await hashFile(filePath);
   const text = await extractPdfText(filePath, pdfConfig);

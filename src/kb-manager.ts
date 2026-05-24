@@ -51,7 +51,9 @@ export interface MultiKBOptions {
   knowledgePath: string;
   dbPath: string;
   vectorDim: number;
-  /** Optional embedder config for ingestion (ingestByPath won't work without this) */
+  /** Full resolved config (preferred over individual sub-configs) */
+  fullConfig?: ResolvedConfig;
+  /** Optional embedder config for ingestion (fallback if fullConfig not provided) */
   embedderConfig?: {
     api?: string;
     endpoint?: string;
@@ -60,11 +62,11 @@ export interface MultiKBOptions {
     chunking?: { maxTokens: number; overlapTokens: number; strategy: "paragraph" | "fixed" | "sentence" };
     pdfParser?: { api: "mineru" | "builtin" | "none"; endpoint: string; apiKey: string; model?: string; params?: Record<string, boolean> };
   };
-  /** Video summarizer config (needed for video text mode) */
+  /** Video summarizer config (fallback) */
   videoConfig?: { endpoint: string; apiKey: string; maxFrames: number; timeoutMs?: number };
-  /** Image summarizer config (needed for image text mode) */
+  /** Image summarizer config (fallback) */
   imageConfig?: { endpoint: string; apiKey: string; timeoutMs: number };
-  /** Embedding method per modality */
+  /** Embedding method per modality (fallback) */
   embeddingMethod?: { image?: "text" | "multimodal"; video?: "text" | "multimodal" };
 }
 
@@ -101,32 +103,37 @@ export class KBManager {
   private _imageConfig: { endpoint: string; apiKey: string; timeoutMs: number };
   private _embeddingMethod: { image: "text" | "multimodal"; video: "text" | "multimodal" };
 
+  private fullConfig?: ResolvedConfig;
+
   constructor(opts: MultiKBOptions) {
+    this.fullConfig = opts.fullConfig;
     this.knowledgePath = opts.knowledgePath;
     this.dbPath = opts.dbPath;
     this.vectorDim = opts.vectorDim;
+    // Derive sub-configs from fullConfig if available, else fallback to explicit opts
+    const ec = this.fullConfig?.embedding;
     this.embedderConfig = {
-      api: opts.embedderConfig?.api ?? "",
-      endpoint: opts.embedderConfig?.endpoint ?? "",
-      apiKey: opts.embedderConfig?.apiKey ?? "",
-      model: opts.embedderConfig?.model ?? "text-embedding-3-small",
-      chunking: opts.embedderConfig?.chunking ?? { maxTokens: 512, overlapTokens: 64, strategy: "paragraph" },
-      pdfParser: opts.embedderConfig?.pdfParser ?? { api: "none" as const, endpoint: "", apiKey: "", model: "", params: {} },
+      api: ec?.api ?? opts.embedderConfig?.api ?? "",
+      endpoint: ec?.endpoint ?? opts.embedderConfig?.endpoint ?? "",
+      apiKey: ec?.apiKey ?? opts.embedderConfig?.apiKey ?? "",
+      model: ec?.model ?? opts.embedderConfig?.model ?? "text-embedding-3-small",
+      chunking: this.fullConfig?.chunking ?? opts.embedderConfig?.chunking ?? { maxTokens: 512, overlapTokens: 64, strategy: "paragraph" as const },
+      pdfParser: this.fullConfig?.pdfParser ?? opts.embedderConfig?.pdfParser ?? { api: "none" as const, endpoint: "", apiKey: "", model: "", params: {} },
     };
     this._videoConfig = {
-      endpoint: opts.videoConfig?.endpoint ?? "",
-      apiKey: opts.videoConfig?.apiKey ?? "",
-      maxFrames: opts.videoConfig?.maxFrames ?? 100,
+      endpoint: this.fullConfig?.videoSummarizer?.endpoint ?? opts.videoConfig?.endpoint ?? "",
+      apiKey: this.fullConfig?.videoSummarizer?.apiKey ?? opts.videoConfig?.apiKey ?? "",
+      maxFrames: this.fullConfig?.videoSummarizer?.maxFrames ?? opts.videoConfig?.maxFrames ?? 100,
       timeoutMs: opts.videoConfig?.timeoutMs ?? 120_000,
     };
     this._imageConfig = {
-      endpoint: opts.imageConfig?.endpoint ?? "",
-      apiKey: opts.imageConfig?.apiKey ?? "",
+      endpoint: this.fullConfig?.imageSummarizer?.endpoint ?? opts.imageConfig?.endpoint ?? "",
+      apiKey: this.fullConfig?.imageSummarizer?.apiKey ?? opts.imageConfig?.apiKey ?? "",
       timeoutMs: opts.imageConfig?.timeoutMs ?? 60_000,
     };
     this._embeddingMethod = {
-      image: opts.embeddingMethod?.image ?? "text",
-      video: opts.embeddingMethod?.video ?? "text",
+      image: this.fullConfig?.embedding?.method?.image ?? opts.embeddingMethod?.image ?? "text",
+      video: this.fullConfig?.embedding?.method?.video ?? opts.embeddingMethod?.video ?? "text",
     };
   }
 
