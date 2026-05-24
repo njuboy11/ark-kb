@@ -327,26 +327,28 @@ export class EmailIngester {
     }
 
     // Ingest each attachment into each matched KB
+    const firstKbPath = targetKBs.length > 0 ? path.join(this.knowledgePath, targetKBs[0]) : "";
     for (const kbName of targetKBs) {
       const kbPath = path.join(this.knowledgePath, kbName);
       fs.mkdirSync(kbPath, { recursive: true });
+      const kbIdx = targetKBs.indexOf(kbName);
       for (const filePath of downloadedPaths) {
         const destPath = path.join(kbPath, path.basename(filePath));
-        // Copy file to KB folder if not already there (first KB gets the original, rest get copies)
-        const alreadyCopied = targetKBs.indexOf(kbName) > 0 && fs.existsSync(filePath);
-        const srcPath = alreadyCopied ? filePath : filePath;
-        if (kbName !== targetKBs[0] || !fs.existsSync(destPath)) {
-          fs.copyFileSync(srcPath, destPath);
+        // First KB: copy from temp file. Subsequent KBs: copy from first KB's dest
+        const firstKbDestPath = kbIdx > 0 ? path.join(firstKbPath, path.basename(filePath)) : filePath;
+        const srcPath = kbIdx === 0 ? filePath : firstKbDestPath;
+        if (!fs.existsSync(destPath)) {
+          try { fs.copyFileSync(srcPath, destPath); } catch (e: any) {
+            console.error(`[EmailIngester] Failed to copy ${path.basename(filePath)} to KB ${kbName}:`, e.message);
+            this._recordFailure(email.uid, email.messageId, `Copy failed: ${e.message}`, email.internalDate);
+            continue;
+          }
         }
         let retries = 0;
         while (retries <= this.config.maxRetries) {
           try {
             await this.kbManager.ingestByPath(destPath);
             this.state.totalProcessed++;
-            // Clean up temp file (only after first KB ingests; copies persist)
-            if (targetKBs.indexOf(kbName) === 0) {
-              try { fs.unlinkSync(filePath); } catch {}
-            }
             break;
           } catch (err: any) {
             retries++;
@@ -359,6 +361,10 @@ export class EmailIngester {
           }
         }
       }
+    }
+    // Clean up temp files AFTER all KBs have been processed
+    for (const filePath of downloadedPaths) {
+      try { fs.unlinkSync(filePath); } catch {}
     }
 
     this._saveState();
@@ -691,8 +697,10 @@ export class EmailIngester {
     } else {
       this.state.failed.push({ uid, messageId, error, retries: 1, arrivedAt });
     }
-    // Clean up permanently failed (retries >= 2)
-    this.state.failed = this.state.failed.filter(f => f.retries < 2);
+    // Move to permanent failures after max retries (keeps entry, adds to permanentFailures)
+    if (existing && existing.retries >= this.config.maxRetries) {
+      this._recordPermanentFailure(uid);
+    }
     this._saveState();
   }
 

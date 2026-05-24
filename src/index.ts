@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { Ingester } from "./ingester.js";
-import { Searcher } from "./searcher.js";
 import { FileWatcher } from "./watcher.js";
 import { KBManager, KBInfo } from "./kb-manager.js";
 import { EmailIngester } from "./email-ingester.js";
@@ -327,14 +326,41 @@ export class ArkKB {
     }
 
     try {
-      // Use the default searcher's rerank logic
-      return await this._defaultSearcher.search({
-        query,
-        topK: results.length,
-        rerankerEnabled: true,
-        rerankerMinScore: options?.rerankerMinScore ?? rc.minScore,
-        resultCount: options?.resultCount ?? this.config.search.resultCount,
-      });
+      // Rerank merged results from ALL KBs instead of re-searching default KB only
+      const rc2 = this.config.reranker;
+      if (rc2?.api && rc2.api !== "none" && rc2.apiKey) {
+        const endpoint = rc2.endpoint || "https://api.siliconflow.cn/v1/rerank";
+        const model = rc2.model || "BAAI/bge-reranker-v2-m3";
+        const documents = results.map(r => r.entry.chunk_text?.substring(0, 2000) ?? "");
+
+        const body: any = { model, query, documents, top_n: documents.length };
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${rc2.apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (resp.ok) {
+          const data: any = await resp.json();
+          const rerankResults = data.results ?? [];
+          const minScore = options?.rerankerMinScore ?? rc2.minScore ?? 0;
+          const topN = options?.resultCount ?? this.config.search.resultCount;
+          const indices = new Set(rerankResults.filter((r2: any) => r2.relevance_score >= minScore).map((r2: any) => r2.index));
+          return results
+            .filter((_, i) => indices.has(i))
+            .slice(0, topN)
+            .map(r => ({
+              score: r.score,
+              chunk_text: r.entry.chunk_text?.substring(0, 500) ?? "",
+              source_path: r.entry.source_path ?? "",
+              chunk_index: r.entry.chunk_index ?? 0,
+              total_chunks: r.entry.total_chunks ?? 0,
+              images: JSON.parse(r.entry.images || "[]"),
+              file_type: r.entry.file_type ?? "",
+              kbName: r.kbName,
+            }));
+        }
+      }
+      // Reranker call failed or unavailable — use un-reranked results
     } catch {
       return results.slice(0, options?.resultCount ?? this.config.search.resultCount).map(r => ({
         score: r.score,

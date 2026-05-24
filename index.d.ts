@@ -6,7 +6,6 @@
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { Ingester } from "./ingester.js";
-import { Searcher } from "./searcher.js";
 import { FileWatcher } from "./watcher.js";
 import { KBManager, KBInfo } from "./kb-manager.js";
 import { ArkKBConfig, ResolvedConfig } from "./config.js";
