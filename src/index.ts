@@ -622,6 +622,8 @@ export function createPlugin(ark: ArkKB) {
 console.log("[Ark KB] register() called");
 let _registered = false;
 
+let _registered = false;
+
 export function register(api: {
 
   if (_registered) return;
@@ -633,6 +635,8 @@ export function register(api: {
   config?: Record<string, any>;
   pluginConfig?: Record<string, any>;
 }): void {
+  if (_registered) return;
+  _registered = true;
   const pluginDir = import.meta.dirname!;
   const standalonePath = join(pluginDir, "plugin-config.json");
 

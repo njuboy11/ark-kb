@@ -541,6 +541,7 @@ export function createPlugin(ark) {
 }
 console.log("[Ark KB] register() called");
 let _registered = false;
+let _registered = false;
 if (_registered) {
     console.log("[Ark KB] Already registered — skipping");
     return;
@@ -550,6 +551,8 @@ registerRuntimeLifecycle: (lifecycle) => void ;
 config ?  : Record;
 pluginConfig ?  : Record;
 void {
+    if(_registered) { }, return: ,
+    _registered = true,
     const: pluginDir = import.meta.dirname,
     const: standalonePath = join(pluginDir, "plugin-config.json"),
     const: fileResult = loadConfigFromFile(standalonePath),
