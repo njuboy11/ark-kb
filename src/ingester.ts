@@ -87,7 +87,7 @@ function chunkByParagraph(
     if (current.length + para.length > maxTokens && current.length > 0) {
       chunks.push(current.trim());
       // Keep last overlap chars as context carryover
-      current = current.slice(-overlap) + "\n\n" + para;
+      current = (overlap > 0 ? current.slice(-overlap) : "") + "\n\n" + para;
     } else {
       current += (current.length > 0 ? "\n\n" : "") + para;
     }

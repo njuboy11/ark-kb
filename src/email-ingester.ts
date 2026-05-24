@@ -174,7 +174,7 @@ export class EmailIngester {
           const failedSeqNums = await this.imapClient.search({ uid: failedUids });
           if (Array.isArray(failedSeqNums) && failedSeqNums.length > 0) {
             for (const seq of failedSeqNums) {
-              if (seq > 1000) { console.warn(`[EmailIngester] Skipping seq ${seq} — exceeds 1000 cap; use IMAP folder cleanup or increase limit`); break; }
+              
               console.log(`[EmailIngester] Fetching failed seq ${seq}…`);
               const msg = await this.imapClient.fetchOne(seq, {
                 uid: true,
@@ -216,8 +216,7 @@ export class EmailIngester {
         let maxProcessedInternalDate = sinceTime;
 
         for (const seq of matches) {
-          if (seq > 1000) break;
-          console.log(`[EmailIngester] Fetching seq ${seq}…`);
+                    console.log(`[EmailIngester] Fetching seq ${seq}…`);
           const msg = await this.imapClient.fetchOne(seq, {
             uid: true,
             source: true,
@@ -320,7 +319,7 @@ export class EmailIngester {
       let retries = 0;
       while (retries < this.config.maxRetries) {
         try {
-          const filePath = path.join(tmpDir, att.filename);
+          const filePath = path.join(tmpDir, `${Date.now()}_${Math.random().toString(36).slice(2)}_${att.filename}`);
           fs.writeFileSync(filePath, att.data);
           downloadedPaths.push(filePath);
           break;

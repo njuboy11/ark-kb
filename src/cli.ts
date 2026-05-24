@@ -118,7 +118,7 @@ async function main(): Promise<void> {
             if (args.verbose) {
               const text = (r as any).chunk_text || r.chunk_text;
               console.log(`    ${(text || "").substring(0, 200)}`);
-              const imgs = (r as any).images ? JSON.parse((r as any).images) : [];
+              const imgs = Array.isArray((r as any).images) ? (r as any).images : (typeof (r as any).images === "string" ? JSON.parse((r as any).images) : []);
               if (imgs.length > 0) console.log(`    🖼  ${imgs.join(", ")}`);
             }
           }
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
         if (!existsSync(absPath)) { console.error(`❌ File not found: ${absPath}`); process.exit(1); }
 
         // Only allow files within knowledgePath
-        if (!absPath.startsWith(resolved.knowledgePath)) {
+        if (!absPath.startsWith(resolved.knowledgePath + path.sep) || absPath === resolved.knowledgePath) {
           console.error(`❌ File must be inside knowledge path: ${resolved.knowledgePath}`);
           process.exit(1);
         }

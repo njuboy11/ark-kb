@@ -108,7 +108,7 @@ async function main() {
                         if (args.verbose) {
                             const text = r.chunk_text || r.chunk_text;
                             console.log(`    ${(text || "").substring(0, 200)}`);
-                            const imgs = r.images ? JSON.parse(r.images) : [];
+                            const imgs = Array.isArray(r.images) ? r.images : (typeof r.images === "string" ? JSON.parse(r.images) : []);
                             if (imgs.length > 0)
                                 console.log(`    🖼  ${imgs.join(", ")}`);
                         }
@@ -128,7 +128,7 @@ async function main() {
                     process.exit(1);
                 }
                 // Only allow files within knowledgePath
-                if (!absPath.startsWith(resolved.knowledgePath)) {
+                if (!absPath.startsWith(resolved.knowledgePath + path.sep) || absPath === resolved.knowledgePath) {
                     console.error(`❌ File must be inside knowledge path: ${resolved.knowledgePath}`);
                     process.exit(1);
                 }
