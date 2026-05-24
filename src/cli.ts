@@ -8,7 +8,7 @@
  *   ark-kb remove <source>          Remove chunks by source filename
  *   ark-kb status                   Show knowledge base status
  *   ark-kb create <name>            Create a new knowledge base
- *   ark-kb delete <name>             Delete a knowledge base
+ *   ark-kb delete <name>            Delete a knowledge base (y/n confirm)
  *   ark-kb list                     List all knowledge bases
  *   ark-kb compact --kb <name>      Compact & cleanup a KB
  *   ark-kb compact --all            Compact all KBs
@@ -187,15 +187,20 @@ async function main(): Promise<void> {
       }
 
       case "delete": {
-        const name = args._[1];
-        if (!name) { console.error("❌ Missing knowledge base name"); process.exit(1); }
-        if (!args.confirm) {
-          console.log(`⚠️  This will PERMANENTLY delete the knowledge base "${name}" and all its data.`);
-          console.log(`   To confirm, run: ark-kb delete ${name} --confirm`);
-          process.exit(1);
+        const delName = args._[1];
+        if (!delName) { console.error("❌ Missing knowledge base name"); process.exit(1); }
+
+        const info = (await core.kbManager.listKBs()).find(k => k.name === delName);
+        console.log(`⚠️  This will PERMANENTLY delete the knowledge base "${delName}" and all its data.`);
+        console.log(`   - Table "${delName}": ${info?.chunkCount ?? "?"} chunks, ${info?.fileCount ?? "?"} files will be lost`);
+        const ok = await promptYN("\nContinue? (y/N): ");
+        if (!ok) {
+          console.log("Aborted.");
+          process.exit(0);
         }
-        await core.deleteKB(name, true);
-        console.log(`Deleted KB: ${name}`);
+
+        await core.deleteKB(delName, true);
+        console.log(`Deleted KB: ${delName}`);
         break;
       }
 
