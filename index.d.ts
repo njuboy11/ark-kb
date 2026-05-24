@@ -30,6 +30,7 @@ export declare class ArkKB {
     /** Searcher attached to the default KB (used when no specific kbName is given) */
     private _defaultSearcher;
     private _failedListPath;
+    private static _instanceCount;
     constructor(rawConfig?: ArkKBConfig);
     init(api?: any): Promise<void>;
     search(query: string, options?: {

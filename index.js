@@ -64,7 +64,10 @@ export class ArkKB {
     /** Searcher attached to the default KB (used when no specific kbName is given) */
     _defaultSearcher;
     _failedListPath = "";
+    static _instanceCount = 0;
     constructor(rawConfig = {}) {
+        ArkKB._instanceCount++;
+        console.log(`[Ark KB] Constructor called (#${ArkKB._instanceCount})`);
         this.config = resolveConfig(rawConfig);
         const knowledgePath = expandPath(this.config.knowledgePath);
         const dbPath = expandPath(this.config.storage.dbPath);

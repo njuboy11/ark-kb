@@ -86,7 +86,11 @@ export class ArkKB {
 
   private _failedListPath = "";
 
+  private static _instanceCount = 0;
+
   constructor(rawConfig: ArkKBConfig = {}) {
+    ArkKB._instanceCount++;
+    console.log(`[Ark KB] Constructor called (#${ArkKB._instanceCount})`);
     this.config = resolveConfig(rawConfig);
 
     const knowledgePath = expandPath(this.config.knowledgePath);
