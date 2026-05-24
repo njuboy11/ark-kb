@@ -25,6 +25,7 @@ export interface EmailState {
         retries: number;
         arrivedAt: string;
     }>;
+    permanentFailures: number[];
 }
 interface AttachmentInfo {
     filename: string;

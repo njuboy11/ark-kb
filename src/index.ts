@@ -364,17 +364,18 @@ export class ArkKB {
       // Reranker call failed or unavailable — use un-reranked results
     } catch (err: any) {
       console.warn(`[Ark KB] Reranker API call failed: ${err.message} — falling back to un-reranked results`);
-      return results.slice(0, options?.resultCount ?? this.config.search.resultCount).map(r => ({
-        score: r.score,
-        chunk_text: r.entry.chunk_text.substring(0, 500),
-        source_path: r.entry.source_path,
-        chunk_index: r.entry.chunk_index,
-        total_chunks: r.entry.total_chunks,
-        images: JSON.parse(r.entry.images || "[]"),
-        file_type: r.entry.file_type,
-        kbName: r.kbName,
-      }));
     }
+    // Fallback: return un-reranked results
+    return results.slice(0, options?.resultCount ?? this.config.search.resultCount).map(r => ({
+      score: r.score,
+      chunk_text: r.entry.chunk_text.substring(0, 500),
+      source_path: r.entry.source_path,
+      chunk_index: r.entry.chunk_index,
+      total_chunks: r.entry.total_chunks,
+      images: JSON.parse(r.entry.images || "[]"),
+      file_type: r.entry.file_type,
+      kbName: r.kbName,
+    }));
   }
 
   // -------------------------------------------------------------------------
