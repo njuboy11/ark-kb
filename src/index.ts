@@ -680,10 +680,13 @@ export function register(api: {
         fromOpenClaw = true;
       }
     } else {
-      console.log("[Ark KB] Config file exists but failed to parse:", standalonePath);
-      console.log("[Ark KB] Falling back to openclaw.json — fix plugin-config.json to restore");
-      arkConfig = (api.pluginConfig ?? api.config ?? {}) as ArkKBConfig;
-      fromOpenClaw = true;
+      console.error("[Ark KB] plugin-config.json exists but failed to parse.");
+      console.error("[Ark KB] Fix the JSON syntax at:", standalonePath);
+      console.error("[Ark KB] Refusing to start with degraded config — no openclaw.json fallback.");
+      throw new Error(
+        `[Ark KB] Configuration file "${standalonePath}" is invalid. ` +
+        `Check JSON syntax or restore from backup.`
+      );
     }
   }
 
