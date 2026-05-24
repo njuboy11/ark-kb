@@ -384,8 +384,74 @@ export class KBManager {
   }
 
   /**
+   * Heal a single KB: scan its directory and re-ingest changed/new files.
+   */
+  async healKB(kbName: string): Promise<{ healed: number; skipped: number }> {
+    const ingester = this.ingesters.get(kbName);
+    if (!ingester) {
+      console.warn(`[KBManager] heal: KB "${kbName}" not found`);
+      return { healed: 0, skipped: 0 };
+    }
+    const kbDir = path.join(this.knowledgePath, kbName);
+    if (!fs.existsSync(kbDir)) {
+      console.warn(`[KBManager] heal: directory not found: ${kbDir}`);
+      return { healed: 0, skipped: 0 };
+    }
+    return ingester.heal(kbDir);
+  }
+
+  /** Heal all KBs. */
+  async healAll(): Promise<{ healed: number; skipped: number; byKB: Record<string, { healed: number; skipped: number }> }> {
+    let totalHealed = 0;
+    let totalSkipped = 0;
+    const byKB: Record<string, { healed: number; skipped: number }> = {};
+    for (const name of this.kbs.keys()) {
+      const r = await this.healKB(name);
+      byKB[name] = r;
+      totalHealed += r.healed;
+      totalSkipped += r.skipped;
+    }
+    return { healed: totalHealed, skipped: totalSkipped, byKB };
+  }
+
+  /**
+   * Rebuild a KB: drop the LanceDB table, recreate it, re-ingest all files.
+   * Requires --confirm because it destroys existing data.
+   */
+  async rebuildKB(kbName: string): Promise<{ healed: number; skipped: number; kbName: string }> {
+    const store = this.kbs.get(kbName);
+    const ingester = this.ingesters.get(kbName);
+    if (!store || !ingester) {
+      throw new Error(`KB "${kbName}" not found`);
+    }
+
+    // 1. Drop the LanceDB table
+    await store.drop();
+
+    // 2. Reinitialize the store (creates new table + FTS index)
+    await store.init();
+
+    // 3. Re-heal the directory
+    const kbDir = path.join(this.knowledgePath, kbName);
+    const result = await ingester.heal(kbDir);
+
+    return { healed: result.healed, skipped: result.skipped, kbName };
+  }
+
+  /** Rebuild all KBs. */
+  async rebuildAll(): Promise<Array<{ healed: number; skipped: number; kbName: string }>> {
+    const results: Array<{ healed: number; skipped: number; kbName: string }> = [];
+    for (const name of this.kbs.keys()) {
+      const r = await this.rebuildKB(name);
+      results.push(r);
+    }
+    return results;
+  }
+
+  /**
    * Re-ingest all files in a directory (heal/re-index).
    * Returns aggregate healed + skipped counts across all KBs.
+   * @deprecated Use healKB() or healAll() instead.
    */
   async heal(knowledgePath: string): Promise<{ healed: number; skipped: number }> {
     let totalHealed = 0;

@@ -10,8 +10,12 @@
  *   ark-kb create <name>            Create a new knowledge base
  *   ark-kb delete <name>             Delete a knowledge base
  *   ark-kb list                     List all knowledge bases
- *   ark-kb compact --kb <name>      Compact & cleanup a KB (merge fragments, prune old versions)
+ *   ark-kb compact --kb <name>      Compact & cleanup a KB
  *   ark-kb compact --all            Compact all KBs
+ *   ark-kb heal --kb <name>         Incremental sync files → DB
+ *   ark-kb heal --all               Heal all KBs
+ *   ark-kb rebuild --kb <name>      Drop & rebuild a KB (requires --confirm)
+ *   ark-kb rebuild --all            Rebuild all KBs (requires --confirm)
  *   ark-kb config                   Print resolved config
  */
 
@@ -305,6 +309,84 @@ async function main(): Promise<void> {
           );
         } else {
           await doCompact(args.kb as string);
+        }
+        break;
+      }
+
+      case "heal": {
+        const healAll = !!args.all;
+
+        if (!args.kb && !healAll) {
+          console.error("❌ Must specify --kb <name> or --all");
+          process.exit(1);
+        }
+        if (healAll && args.kb) {
+          console.error("❌ Cannot use both --kb and --all");
+          process.exit(1);
+        }
+
+        const hStart = Date.now();
+        if (healAll) {
+          console.log("[Ark KB] Healing all KBs...\n");
+          const result = await core.kbManager.healAll();
+          for (const [name, r] of Object.entries(result.byKB)) {
+            console.log(`  ✅ ${name}: healed ${r.healed}, skipped ${r.skipped}`);
+          }
+          console.log(
+            `────────────────────────────────────────────────\n` +
+            `✅ All KBs healed (${Date.now() - hStart}ms): ${result.healed} healed, ${result.skipped} skipped`
+          );
+        } else {
+          const name = args.kb as string;
+          console.log(`[Ark KB] Healing: ${name}`);
+          const result = await core.kbManager.healKB(name);
+          console.log(`✅ ${name}: healed ${result.healed}, skipped ${result.skipped} (${Date.now() - hStart}ms)`);
+        }
+        break;
+      }
+
+      case "rebuild": {
+        const rebuildAll = !!args.all;
+
+        if (!args.kb && !rebuildAll) {
+          console.error("❌ Must specify --kb <name> or --all");
+          process.exit(1);
+        }
+        if (rebuildAll && args.kb) {
+          console.error("❌ Cannot use both --kb and --all");
+          process.exit(1);
+        }
+        if (!args.confirm) {
+          const target = rebuildAll ? "all KBs" : `KB "${args.kb}"`;
+          const kbList = rebuildAll
+            ? (await core.kbManager.listKBs()).map(k => k.name)
+            : [args.kb as string];
+          console.log(`⚠️  This will DROP and REBUILD ${target}`);
+          for (const name of kbList) {
+            console.log(`   - Drop table "${name}" and recreate`);
+            console.log(`   - Re-ingest all files from ${resolved.knowledgePath}/${name}`);
+          }
+          console.log(`\n   To confirm: ark-kb rebuild ${rebuildAll ? "--all" : `--kb ${args.kb}`} --confirm`);
+          process.exit(1);
+        }
+
+        const rStart = Date.now();
+        if (rebuildAll) {
+          console.log("[Ark KB] Rebuilding all KBs...\n");
+          const results = await core.kbManager.rebuildAll();
+          for (const r of results) {
+            console.log(`  ✅ ${r.kbName}: rebuilt, ${r.healed} re-ingested, ${r.skipped} skipped`);
+          }
+          const total = results.reduce((s, r) => s + r.healed, 0);
+          console.log(
+            `────────────────────────────────────────────────\n` +
+            `✅ All ${results.length} KBs rebuilt (${Date.now() - rStart}ms): ${total} files re-ingested`
+          );
+        } else {
+          const name = args.kb as string;
+          console.log(`[Ark KB] Rebuilding: ${name}`);
+          const result = await core.kbManager.rebuildKB(name);
+          console.log(`✅ ${name} rebuilt: ${result.healed} re-ingested, ${result.skipped} skipped (${Date.now() - rStart}ms)`);
         }
         break;
       }
