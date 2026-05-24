@@ -554,7 +554,7 @@ export class Ingester {
                     const hashExists = await this.store.hasFileHash(newHash);
                     if (hashExists) {
                         console.log(`[Ark KB] Skipping duplicate (hash match): ${base}`);
-                        return { entries: 0, source: relPath, skipped: true };
+                        return { entries: 0, source: relative(this.knowledgePath, filePath), skipped: true };
                     }
                 }
                 catch {
@@ -579,15 +579,15 @@ export class Ingester {
                             entries = await processPdf(filePath, this.embedder, this.config.chunking, this.config.pdfParser);
                             break;
                         default:
-                            return { entries: 0, source: relPath, skipped: true };
+                            return { entries: 0, source: relative(this.knowledgePath, filePath), skipped: true };
                     }
                 }
                 catch (err) {
                     console.error(`[Ark KB] Failed to process ${filePath}: ${err.message}`);
-                    return { entries: 0, source: relPath, skipped: false };
+                    return { entries: 0, source: relative(this.knowledgePath, filePath), skipped: false };
                 }
                 if (entries.length === 0) {
-                    return { entries: 0, source: relPath, skipped: false };
+                    return { entries: 0, source: relative(this.knowledgePath, filePath), skipped: false };
                 }
                 // Fix source_path to be relative to knowledgePath (for multi-KB media resolution)
                 const relativePath = relative(this.knowledgePath, filePath);
@@ -597,7 +597,7 @@ export class Ingester {
                 // Clean up old entries after new data is safely stored
                 await this.store.deleteBySource(base);
                 console.log(`[Ark KB] Indexed: ${base} (${entries.length} chunks)`);
-                return { entries: entries.length, source: relPath, skipped: false };
+                return { entries: entries.length, source: relativePath, skipped: false };
             }
             finally {
                 this._ingestLocks.delete(filePath);
