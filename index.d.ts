@@ -1,3 +1,8 @@
+/**
+ * Ark KB — Main Entry
+ * Wires together all components with nested config support.
+ * Exports definePluginEntry-compatible register function for OpenClaw.
+ */
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { Ingester } from "./ingester.js";
