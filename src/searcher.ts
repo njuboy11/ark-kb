@@ -3,7 +3,7 @@
  * Hybrid BM25 + vector search with weighted fusion and optional reranking.
  */
 
-import { readFile, copyFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { existsSync, chmodSync } from "node:fs";
 import { KnowledgeStore, KBSearchResult, KBEntry } from "./store.js";
@@ -148,7 +148,7 @@ export class Searcher {
 
     // 3. Normalize scores for each arm (min-max to [0,1])
     const normalizedVec = normalizeScores(vecResults);
-    const normalizedBm25 = normalizeScores(bm25Results);
+    const normalizedBm25 = normalizeScores(bm25Results, true);
 
     // 4. Build a unified result map with weighted fusion
     const scoreMap = new Map<string, { entry: KBEntry; fusedScore: number; vecScore: number; bm25Score: number }>();

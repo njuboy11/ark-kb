@@ -91,7 +91,7 @@ export class EmailIngester {
                 const lock = await this.imapClient.getMailboxLock("INBOX");
                 try {
                     // Step 1: Build SINCE time — if there are recent failed emails, use the oldest one
-                    const retryableFailed = this.state.failed.filter(f => f.retries < 2);
+                    const retryableFailed = this.state.failed.filter(f => f.retries < this.config.maxRetries + 1);
                     let sinceTime;
                     if (retryableFailed.length > 0) {
                         // Use the oldest failed email's arrivedAt time
@@ -393,7 +393,15 @@ export class EmailIngester {
         const videoExts = [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"];
         if (textExts.includes(ext)) {
             // Stage 2a: Text/PDF content analysis
-            const content = att.data.toString("utf-8").substring(0, 8000);
+            // Skip binary (non-text) attachments — they produce garbage for LLM
+            let content = "";
+            try {
+                const text = new TextDecoder("utf-8", { fatal: true }).decode(att.data.slice(0, 8192));
+                content = text.substring(0, 8000);
+            }
+            catch {
+                continue; // Binary attachment — skip LLM analysis
+            }
             if (!this.llmClient.endpoint || !this.llmClient.apiKey)
                 return [];
             try {

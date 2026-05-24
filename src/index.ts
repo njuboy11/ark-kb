@@ -157,7 +157,9 @@ export class ArkKB {
 
   async init(api?: any): Promise<void> {
     if (this._initialized) return;
-    this._initialized = true;  // Set immediately to prevent race
+
+    try {
+    // Init steps (set flag only on success)
 
     // KBManager.init() handles auto-migration + scanning + store init
     await this.kbManager.init();
@@ -227,6 +229,11 @@ export class ArkKB {
     await this._initEmailIngester(api);
 
     console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
+    this._initialized = true;
+    } catch (err: any) {
+      console.error("[Ark KB] init failed:", err.message);
+      throw err;
+    }
   }
 
   // -------------------------------------------------------------------------

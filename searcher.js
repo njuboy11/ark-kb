@@ -80,7 +80,7 @@ export class Searcher {
         ]);
         // 3. Normalize scores for each arm (min-max to [0,1])
         const normalizedVec = normalizeScores(vecResults);
-        const normalizedBm25 = normalizeScores(bm25Results);
+        const normalizedBm25 = normalizeScores(bm25Results, true);
         // 4. Build a unified result map with weighted fusion
         const scoreMap = new Map();
         for (const r of normalizedVec) {

@@ -283,11 +283,11 @@ export class Embedder {
 
   private parseResponse(data: any, api: string): EmbedResult {
     if (data.data && Array.isArray(data.data)) {
-      const embeddings = data.data.sort((a: any, b: any) => a.index - b.index).map((item: any) => item.embedding as number[]);
+      const embeddings = data.data.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0)).map((item: any) => item.embedding as number[]);
       return { embeddings, model: data.model || this.config.model, usage: data.usage ? { prompt_tokens: data.usage.prompt_tokens || 0, total_tokens: data.usage.total_tokens || 0 } : undefined };
     }
     if (data.output?.embeddings && Array.isArray(data.output.embeddings)) {
-      const embeddings = data.output.embeddings.sort((a: any, b: any) => a.text_index - b.text_index).map((item: any) => item.embedding as number[]);
+      const embeddings = data.output.embeddings.sort((a: any, b: any) => (a.text_index ?? 0) - (b.text_index ?? 0)).map((item: any) => item.embedding as number[]);
       return { embeddings, model: data.model || this.config.model, usage: data.usage };
     }
     throw new Error(`[Ark KB] Unexpected embedding response format from ${api}: ${JSON.stringify(Object.keys(data))}`);
