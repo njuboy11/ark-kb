@@ -66,6 +66,7 @@ export class EmailIngester {
   private scanTimer: ReturnType<typeof setInterval> | null = null;
   private imapClient: any = null;
   private ImapFlow: any = null;
+  private _scanning: boolean = false;
 
   constructor(opts: {
     config: EmailIngesterConfig;
@@ -135,17 +136,18 @@ export class EmailIngester {
       return;
     }
     this._scanning = true;
-    if (!this.imapClient) {
-      try {
-        await this._connect();
-      } catch (err: any) {
-        console.error("[EmailIngester] IMAP connect failed:", err.message);
-        return;
-      }
-    }
-
     try {
-      const lock = await this.imapClient.getMailboxLock("INBOX");
+      if (!this.imapClient) {
+        try {
+          await this._connect();
+        } catch (err: any) {
+          console.error("[EmailIngester] IMAP connect failed:", err.message);
+          return;
+        }
+      }
+
+      try {
+        const lock = await this.imapClient.getMailboxLock("INBOX");
       try {
         // Step 1: Build SINCE time — if there are recent failed emails, use the oldest one
         const retryableFailed = this.state.failed.filter(f => f.retries < 2);
@@ -269,8 +271,11 @@ export class EmailIngester {
       } finally {
         lock.release();
       }
-    } catch (err: any) {
-      console.error("[EmailIngester] Scan error:", err.message);
+      } catch (err: any) {
+        console.error("[EmailIngester] Scan error:", err.message);
+      }
+    } finally {
+      this._scanning = false;
     }
   }
 

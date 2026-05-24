@@ -92,6 +92,9 @@ export class ArkKB {
     const knowledgePath = expandPath(this.config.knowledgePath);
     const dbPath = expandPath(this.config.storage.dbPath);
 
+    if (!knowledgePath) {
+      throw new Error("[Ark KB] knowledgePath is empty — cannot initialize");
+    }
     if (!existsSync(knowledgePath)) {
       mkdirSync(knowledgePath, { recursive: true });
     }
@@ -503,7 +506,7 @@ export class ArkKB {
       }
 
       return { endpoint: "", apiKey: "", model: "" };
-    } catch { return { endpoint: "", apiKey: "", model: "" }; }
+    } catch (err: any) { console.error("[Ark KB] Failed to resolve LLM config:", err.message); return { endpoint: "", apiKey: "", model: "" }; }
   }
 
   private _emailIngesterInitialized = false;

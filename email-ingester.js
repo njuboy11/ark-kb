@@ -18,6 +18,7 @@ export class EmailIngester {
     scanTimer = null;
     imapClient = null;
     ImapFlow = null;
+    _scanning = false;
     constructor(opts) {
         this.config = opts.config;
         this.kbManager = opts.kbManager;
@@ -71,147 +72,152 @@ export class EmailIngester {
             return;
         }
         this._scanning = true;
-        if (!this.imapClient) {
+        try {
+            if (!this.imapClient) {
+                try {
+                    await this._connect();
+                }
+                catch (err) {
+                    console.error("[EmailIngester] IMAP connect failed:", err.message);
+                    return;
+                }
+            }
             try {
-                await this._connect();
+                const lock = await this.imapClient.getMailboxLock("INBOX");
+                try {
+                    // Step 1: Build SINCE time — if there are recent failed emails, use the oldest one
+                    const retryableFailed = this.state.failed.filter(f => f.retries < 2);
+                    let sinceTime;
+                    if (retryableFailed.length > 0) {
+                        // Use the oldest failed email's arrivedAt time
+                        sinceTime = retryableFailed.reduce((oldest, f) => f.arrivedAt < oldest ? f.arrivedAt : oldest, retryableFailed[0].arrivedAt);
+                    }
+                    else {
+                        sinceTime = this.state.lastProcessedTime;
+                    }
+                    // Step 2: Fetch failed list emails with retries < 2 separately
+                    if (retryableFailed.length > 0) {
+                        const failedUids = retryableFailed.map(f => f.uid);
+                        console.log(`[EmailIngester] Re-fetching failed emails: UIDs ${failedUids.join(", ")}`);
+                        const failedSeqNums = await this.imapClient.search({ uid: failedUids });
+                        if (Array.isArray(failedSeqNums) && failedSeqNums.length > 0) {
+                            for (const seq of failedSeqNums) {
+                                if (seq > 1000)
+                                    break;
+                                console.log(`[EmailIngester] Fetching failed seq ${seq}…`);
+                                const msg = await this.imapClient.fetchOne(seq, {
+                                    uid: true,
+                                    source: true,
+                                    envelope: true,
+                                    bodyStructure: true,
+                                    internalDate: true,
+                                });
+                                if (!msg)
+                                    continue;
+                                const email = await this._parseEmail(msg);
+                                const failedEntry = this.state.failed.find(f => f.uid === email.uid);
+                                if (!failedEntry)
+                                    continue;
+                                try {
+                                    await this._processEmail(email);
+                                    // Success — remove from failed list
+                                    this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+                                    console.log(`[EmailIngester] Successfully reprocessed UID ${email.uid}`);
+                                }
+                                catch (err) {
+                                    console.error(`[EmailIngester] Re-process failed for UID ${email.uid}:`, err.message);
+                                    this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
+                                }
+                            }
+                        }
+                    }
+                    // Step 3: Regular scan — use UID > lastProcessedUID when available
+                    let criteria;
+                    if (this.state.lastProcessedUID > 0) {
+                        criteria = { uid: `${this.state.lastProcessedUID + 1}:*` };
+                    }
+                    else {
+                        criteria = { since: new Date(sinceTime) };
+                    }
+                    const seqNums = await this.imapClient.search(criteria);
+                    const matches = Array.isArray(seqNums) ? seqNums : [];
+                    console.log(`[EmailIngester] search criteria:`, JSON.stringify(criteria), `→ ${matches.length} matches`);
+                    let count = 0;
+                    let maxProcessedUID = this.state.lastProcessedUID;
+                    let maxProcessedInternalDate = sinceTime;
+                    for (const seq of matches) {
+                        if (seq > 1000)
+                            break;
+                        console.log(`[EmailIngester] Fetching seq ${seq}…`);
+                        const msg = await this.imapClient.fetchOne(seq, {
+                            uid: true,
+                            source: true,
+                            envelope: true,
+                            bodyStructure: true,
+                            internalDate: true,
+                        });
+                        if (!msg) {
+                            console.log(`[EmailIngester] seq ${seq} returned null`);
+                            continue;
+                        }
+                        const email = await this._parseEmail(msg);
+                        console.log(`[EmailIngester] seq ${seq} UID=${email.uid} subj="${email.subject}" att=${email.attachments.length}`);
+                        // Skip if in failed list with retries >= 2
+                        const failedEntry = this.state.failed.find(f => f.uid === email.uid);
+                        if (failedEntry && failedEntry.retries >= 2) {
+                            console.log(`[EmailIngester] Skipping UID ${email.uid} — permanently failed`);
+                            continue;
+                        }
+                        // Skip emails without attachments (no-op, don't bump timestamp)
+                        if (email.attachments.length === 0)
+                            continue;
+                        try {
+                            await this._processEmail(email);
+                            // Success — remove from failed list, track processed time
+                            this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
+                            if (email.uid > maxProcessedUID) {
+                                maxProcessedUID = email.uid;
+                            }
+                            if (email.uid > maxProcessedUID) {
+                                maxProcessedUID = email.uid;
+                            }
+                            if (email.internalDate > maxProcessedInternalDate) {
+                                maxProcessedInternalDate = email.internalDate;
+                            }
+                            count++;
+                        }
+                        catch (err) {
+                            console.error(`[EmailIngester] Failed to process UID ${email.uid}:`, err.message);
+                            this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
+                            // DO NOT advance timestamp — failed emails will be retried next scan
+                        }
+                    }
+                    // Advance UID cursor past the latest processed email
+                    // UID-based search (next scan) won't re-process these emails
+                    if (maxProcessedUID > this.state.lastProcessedUID) {
+                        this.state.lastProcessedUID = maxProcessedUID;
+                    }
+                    // Update lastProcessedTime (for backward compat / initial SINCE fallback)
+                    if (count > 0 && maxProcessedInternalDate !== sinceTime) {
+                        this.state.lastProcessedTime = maxProcessedInternalDate;
+                    }
+                    // If nothing was processed → keep old state → all emails retried
+                    this.state.lastScan = Date.now();
+                    if (count > 0) {
+                        console.log(`[EmailIngester] Processed ${count} email(s) with attachments`);
+                    }
+                    this._saveState();
+                }
+                finally {
+                    lock.release();
+                }
             }
             catch (err) {
-                console.error("[EmailIngester] IMAP connect failed:", err.message);
-                return;
+                console.error("[EmailIngester] Scan error:", err.message);
             }
         }
-        try {
-            const lock = await this.imapClient.getMailboxLock("INBOX");
-            try {
-                // Step 1: Build SINCE time — if there are recent failed emails, use the oldest one
-                const retryableFailed = this.state.failed.filter(f => f.retries < 2);
-                let sinceTime;
-                if (retryableFailed.length > 0) {
-                    // Use the oldest failed email's arrivedAt time
-                    sinceTime = retryableFailed.reduce((oldest, f) => f.arrivedAt < oldest ? f.arrivedAt : oldest, retryableFailed[0].arrivedAt);
-                }
-                else {
-                    sinceTime = this.state.lastProcessedTime;
-                }
-                // Step 2: Fetch failed list emails with retries < 2 separately
-                if (retryableFailed.length > 0) {
-                    const failedUids = retryableFailed.map(f => f.uid);
-                    console.log(`[EmailIngester] Re-fetching failed emails: UIDs ${failedUids.join(", ")}`);
-                    const failedSeqNums = await this.imapClient.search({ uid: failedUids });
-                    if (Array.isArray(failedSeqNums) && failedSeqNums.length > 0) {
-                        for (const seq of failedSeqNums) {
-                            if (seq > 1000)
-                                break;
-                            console.log(`[EmailIngester] Fetching failed seq ${seq}…`);
-                            const msg = await this.imapClient.fetchOne(seq, {
-                                uid: true,
-                                source: true,
-                                envelope: true,
-                                bodyStructure: true,
-                                internalDate: true,
-                            });
-                            if (!msg)
-                                continue;
-                            const email = await this._parseEmail(msg);
-                            const failedEntry = this.state.failed.find(f => f.uid === email.uid);
-                            if (!failedEntry)
-                                continue;
-                            try {
-                                await this._processEmail(email);
-                                // Success — remove from failed list
-                                this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
-                                console.log(`[EmailIngester] Successfully reprocessed UID ${email.uid}`);
-                            }
-                            catch (err) {
-                                console.error(`[EmailIngester] Re-process failed for UID ${email.uid}:`, err.message);
-                                this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
-                            }
-                        }
-                    }
-                }
-                // Step 3: Regular scan — use UID > lastProcessedUID when available
-                let criteria;
-                if (this.state.lastProcessedUID > 0) {
-                    criteria = { uid: `${this.state.lastProcessedUID + 1}:*` };
-                }
-                else {
-                    criteria = { since: new Date(sinceTime) };
-                }
-                const seqNums = await this.imapClient.search(criteria);
-                const matches = Array.isArray(seqNums) ? seqNums : [];
-                console.log(`[EmailIngester] search criteria:`, JSON.stringify(criteria), `→ ${matches.length} matches`);
-                let count = 0;
-                let maxProcessedUID = this.state.lastProcessedUID;
-                let maxProcessedInternalDate = sinceTime;
-                for (const seq of matches) {
-                    if (seq > 1000)
-                        break;
-                    console.log(`[EmailIngester] Fetching seq ${seq}…`);
-                    const msg = await this.imapClient.fetchOne(seq, {
-                        uid: true,
-                        source: true,
-                        envelope: true,
-                        bodyStructure: true,
-                        internalDate: true,
-                    });
-                    if (!msg) {
-                        console.log(`[EmailIngester] seq ${seq} returned null`);
-                        continue;
-                    }
-                    const email = await this._parseEmail(msg);
-                    console.log(`[EmailIngester] seq ${seq} UID=${email.uid} subj="${email.subject}" att=${email.attachments.length}`);
-                    // Skip if in failed list with retries >= 2
-                    const failedEntry = this.state.failed.find(f => f.uid === email.uid);
-                    if (failedEntry && failedEntry.retries >= 2) {
-                        console.log(`[EmailIngester] Skipping UID ${email.uid} — permanently failed`);
-                        continue;
-                    }
-                    // Skip emails without attachments (no-op, don't bump timestamp)
-                    if (email.attachments.length === 0)
-                        continue;
-                    try {
-                        await this._processEmail(email);
-                        // Success — remove from failed list, track processed time
-                        this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
-                        if (email.uid > maxProcessedUID) {
-                            maxProcessedUID = email.uid;
-                        }
-                        if (email.uid > maxProcessedUID) {
-                            maxProcessedUID = email.uid;
-                        }
-                        if (email.internalDate > maxProcessedInternalDate) {
-                            maxProcessedInternalDate = email.internalDate;
-                        }
-                        count++;
-                    }
-                    catch (err) {
-                        console.error(`[EmailIngester] Failed to process UID ${email.uid}:`, err.message);
-                        this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
-                        // DO NOT advance timestamp — failed emails will be retried next scan
-                    }
-                }
-                // Advance UID cursor past the latest processed email
-                // UID-based search (next scan) won't re-process these emails
-                if (maxProcessedUID > this.state.lastProcessedUID) {
-                    this.state.lastProcessedUID = maxProcessedUID;
-                }
-                // Update lastProcessedTime (for backward compat / initial SINCE fallback)
-                if (count > 0 && maxProcessedInternalDate !== sinceTime) {
-                    this.state.lastProcessedTime = maxProcessedInternalDate;
-                }
-                // If nothing was processed → keep old state → all emails retried
-                this.state.lastScan = Date.now();
-                if (count > 0) {
-                    console.log(`[EmailIngester] Processed ${count} email(s) with attachments`);
-                }
-                this._saveState();
-            }
-            finally {
-                lock.release();
-            }
-        }
-        catch (err) {
-            console.error("[EmailIngester] Scan error:", err.message);
+        finally {
+            this._scanning = false;
         }
     }
     // -------------------------------------------------------------------------

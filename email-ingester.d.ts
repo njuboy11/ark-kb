@@ -41,6 +41,7 @@ export declare class EmailIngester {
     private scanTimer;
     private imapClient;
     private ImapFlow;
+    private _scanning;
     constructor(opts: {
         config: EmailIngesterConfig;
         kbManager: KBManager;
