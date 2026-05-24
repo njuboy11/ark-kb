@@ -594,10 +594,13 @@ export class Ingester {
   private imageMethod: "text" | "multimodal" = "text";
   private videoMethod: "text" | "multimodal" = "text";
 
+  private knowledgePath: string = "";
+
   constructor(
     store: KnowledgeStore,
     embedder: Embedder,
     config: IngesterConfig,
+    knowledgePath?: string,
     videoConfig?: { endpoint: string; apiKey: string; maxFrames: number; timeoutMs?: number },
     imageConfig?: { endpoint: string; apiKey: string; timeoutMs: number },
     modes?: { imageMethod?: "text" | "multimodal"; videoMethod?: "text" | "multimodal" },
@@ -605,6 +608,7 @@ export class Ingester {
     this.store = store;
     this.embedder = embedder;
     this.config = config;
+    if (knowledgePath) this.knowledgePath = knowledgePath;
     if (videoConfig) this.videoConfig = { ...this.videoConfig, ...videoConfig };
     if (imageConfig) this.imageConfig = { ...this.imageConfig, ...imageConfig };
     if (modes) {

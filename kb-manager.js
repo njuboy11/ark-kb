@@ -129,7 +129,7 @@ export class KBManager {
             batchSize: 16,
         });
         const pdfParser = this.embedderConfig.pdfParser ?? { api: "none", endpoint: "", apiKey: "", model: "", params: {} };
-        return new Ingester(store, embedder, { chunking: this.embedderConfig.chunking, pdfParser }, { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs }, { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs }, { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video });
+        return new Ingester(store, embedder, { chunking: this.embedderConfig.chunking, pdfParser }, this.knowledgePath, { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs }, { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs }, { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video });
     }
     // -------------------------------------------------------------------------
     // KB CRUD

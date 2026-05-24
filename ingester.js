@@ -506,10 +506,13 @@ export class Ingester {
     imageConfig = { endpoint: "", apiKey: "", timeoutMs: 60_000 };
     imageMethod = "text";
     videoMethod = "text";
-    constructor(store, embedder, config, videoConfig, imageConfig, modes) {
+    knowledgePath = "";
+    constructor(store, embedder, config, knowledgePath, videoConfig, imageConfig, modes) {
         this.store = store;
         this.embedder = embedder;
         this.config = config;
+        if (knowledgePath)
+            this.knowledgePath = knowledgePath;
         if (videoConfig)
             this.videoConfig = { ...this.videoConfig, ...videoConfig };
         if (imageConfig)

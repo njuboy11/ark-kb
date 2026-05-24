@@ -30,7 +30,8 @@ export declare class Ingester {
     private imageConfig;
     private imageMethod;
     private videoMethod;
-    constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig, videoConfig?: {
+    private knowledgePath;
+    constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig, knowledgePath?: string, videoConfig?: {
         endpoint: string;
         apiKey: string;
         maxFrames: number;

@@ -203,6 +203,7 @@ export class KBManager {
       store,
       embedder,
       { chunking: this.embedderConfig.chunking, pdfParser },
+      this.knowledgePath,
       { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs },
       { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs },
       { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video },
