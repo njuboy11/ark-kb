@@ -5,7 +5,7 @@
  */
 
 import { readFile, stat, readdir } from "node:fs/promises";
-import { extname, basename, join } from "node:path";
+import { extname, basename, join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { KnowledgeStore, KBEntry } from "./store.js";
 import { Embedder, exposeMediaFile } from "./embedder.js";
