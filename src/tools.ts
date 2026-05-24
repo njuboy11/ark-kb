@@ -138,14 +138,13 @@ export function registerKBTools(ark: ArkKB) {
               ],
             };
           } else {
-            const result = await ark.ingester.ingestDirectory(ark.config.knowledgePath);
+            const result = await ark.kbManager.heal(ark.config.knowledgePath);
             return {
               content: [
                 {
                   type: "text" as const,
                   text:
-                    `Re-indexed ${result.files} files, ${result.total} chunks total` +
-                    (result.errors > 0 ? ` (${result.errors} errors)` : ""),
+                    `Re-indexed ${result.healed} files, ${result.skipped} skipped`,
                 },
               ],
             };
