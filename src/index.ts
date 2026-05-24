@@ -506,7 +506,10 @@ export class ArkKB {
     } catch { return { endpoint: "", apiKey: "", model: "" }; }
   }
 
+  private _emailIngesterInitialized = false;
+
   private async _initEmailIngester(api?: any): Promise<void> {
+    if (this._emailIngesterInitialized) return;
     if (!this.config.emailIngester.enabled) return;
 
     const llmClient = this.getUserLLM();
@@ -517,6 +520,7 @@ export class ArkKB {
       llmClient,
     });
     await this.emailIngester.init();
+    this._emailIngesterInitialized = true;
   }
 
   private async _retryFailed(knowledgePath: string): Promise<void> {

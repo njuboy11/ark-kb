@@ -31,6 +31,10 @@ export class EmailIngester {
     // Init
     // -------------------------------------------------------------------------
     async init() {
+        if (this._initialized) {
+            console.log("[EmailIngester] Already initialized — skipping");
+            return;
+        }
         if (!this.config.enabled) {
             console.log("[EmailIngester] Disabled — skipping");
             return;
