@@ -5,6 +5,7 @@
  */
 
 import { readFile, stat, readdir } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import { extname, basename, join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { KnowledgeStore, KBEntry } from "./store.js";
@@ -45,8 +46,13 @@ export function detectFileKind(filePath: string): FileKind {
 // ============================================================================
 
 export async function hashFile(filePath: string): Promise<string> {
-  const content = await readFile(filePath);
-  return createHash("sha256").update(content).digest("hex");
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+    stream.on("error", reject);
+  });
 }
 
 // ============================================================================

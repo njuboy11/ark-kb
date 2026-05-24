@@ -337,7 +337,7 @@ export class EmailIngester {
         const regexMatched = [];
         for (const kb of kbNames) {
             const escaped = kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const pattern = new RegExp(`\\b${escaped}\\b`, 'i');
+            const pattern = new RegExp(escaped, 'i');
             if (pattern.test(subject) || pattern.test(body)) {
                 regexMatched.push(kb);
             }

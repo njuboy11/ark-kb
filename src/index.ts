@@ -363,7 +363,6 @@ export class ArkKB {
           }
           return results
             .filter((_, i) => scoreMap.has(i))
-            .slice(0, topN)
             .map(r => ({
               score: scoreMap.get(results.indexOf(r)) ?? r.score,
               chunk_text: r.entry.chunk_text?.substring(0, 500) ?? "",
@@ -373,7 +372,9 @@ export class ArkKB {
               images: JSON.parse(r.entry.images || "[]"),
               file_type: r.entry.file_type ?? "",
               kbName: r.kbName,
-            }));
+            }))
+            .sort((a: any, b: any) => b.score - a.score)
+            .slice(0, topN);
         }
       }
       // Reranker call failed or unavailable — use un-reranked results

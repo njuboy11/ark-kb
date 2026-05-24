@@ -129,8 +129,12 @@ async function probeVideo(filePath) {
     const result = spawnSync("ffprobe", [
         "-v", "quiet", "-print_format", "json",
         "-show_format", "-show_streams", filePath
-    ], { encoding: "utf-8" }).stdout;
-    const data = JSON.parse(result);
+    ], { encoding: "utf-8" });
+    if (result.status !== 0) {
+        const err = result.stderr?.toString() ?? "unknown error";
+        throw new Error(`ffprobe failed with status ${result.status}: ${err.slice(-200)}`);
+    }
+    const data = JSON.parse(result.stdout);
     const videoStream = data.streams?.find((s) => s.codec_type === "video");
     const format = data.format ?? {};
     return {

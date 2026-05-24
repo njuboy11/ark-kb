@@ -110,17 +110,22 @@ const RERANKER_MODEL_PRESETS = {
 // Media file exposure — for multimodal APIs that need HTTPS URL or base64
 // ============================================================================
 import { copyFile, readFile } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { join, basename, resolve } from "node:path";
 import { existsSync, chmodSync } from "node:fs";
 /** Expose a local file as HTTPS URL (if nginx available) or base64. */
 export async function exposeMediaFile(knowledgePath, sourcePath) {
     const serveDir = "/var/www/downloads";
     const baseName = basename(sourcePath);
+    // Safely resolve sourcePath within knowledgePath to prevent path traversal
+    const safePath = resolve(knowledgePath, sourcePath);
+    if (!safePath.startsWith(resolve(knowledgePath))) {
+        return ""; // Path traversal detected — reject
+    }
     // If nginx serve dir exists → copy + HTTPS URL (best performance)
     if (existsSync(serveDir)) {
         try {
             const dest = join(serveDir, baseName);
-            await copyFile(join(knowledgePath, sourcePath.replace(/\.\.+/g, "")), dest);
+            await copyFile(safePath, dest);
             chmodSync(dest, 0o644);
             return `https://home.sfunds.cn:8444/${encodeURIComponent(baseName)}`;
         }
@@ -128,7 +133,7 @@ export async function exposeMediaFile(knowledgePath, sourcePath) {
     }
     // Fallback: base64 encode (works everywhere, no server needed)
     try {
-        const fileBuffer = await readFile(join(knowledgePath, sourcePath.replace(/\.\.+/g, "")));
+        const fileBuffer = await readFile(safePath);
         return fileBuffer.toString("base64");
     }
     catch {
