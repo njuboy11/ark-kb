@@ -243,7 +243,7 @@ export class KnowledgeStore {
             throw new Error("[Ark KB] Store not initialized — call init() first");
         }
         const results = await this.table.query()
-            .filter(`file_hash = "${hash}"`)
+            .filter(`file_hash = '${hash}'`)
             .limit(1)
             .execute();
         const rows = await collectRows(results);

@@ -438,7 +438,7 @@ export class EmailIngester {
     // -------------------------------------------------------------------------
     async askLLM(systemPrompt, userContent) {
         const { endpoint, apiKey, model } = this.llmClient;
-        const response = await fetch(`${endpoint}/chat/completions`, {
+        const response = await fetch(`endpoint`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -477,7 +477,7 @@ export class EmailIngester {
             max_tokens: 512,
             temperature: 0.1,
         };
-        const response = await fetch(`${endpoint}/chat/completions`, {
+        const response = await fetch(`endpoint`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
