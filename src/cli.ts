@@ -15,7 +15,7 @@
 
 import { resolveConfig, loadConfigFromFile } from "./config.js";
 import { ArkKB } from "./index.js";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { existsSync } from "node:fs";
 
 // ============================================================================
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
         if (!existsSync(absPath)) { console.error(`❌ File not found: ${absPath}`); process.exit(1); }
 
         // Only allow files within knowledgePath
-        if (!absPath.startsWith(resolved.knowledgePath + path.sep) || absPath === resolved.knowledgePath) {
+        if (!absPath.startsWith(resolved.knowledgePath + sep) || absPath === resolved.knowledgePath) {
           console.error(`❌ File must be inside knowledge path: ${resolved.knowledgePath}`);
           process.exit(1);
         }
