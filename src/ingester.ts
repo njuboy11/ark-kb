@@ -30,7 +30,7 @@ const SUPPORTED_TEXT_EXTS = new Set([
 const SUPPORTED_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".jfif", ".webp", ".gif", ".bmp", ".svg", ".tiff", ".tif", ".ico", ".heic", ".heif", ".raw", ".cr2", ".nef", ".arw"]);
 const SUPPORTED_VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".3gp", ".ogv", ".ts"]);
 
-export type FileKind = "text" | "image" | "video" | "pdf" | "unsupported";
+export type FileKind = "text" | "image" | "video" | "pdf" | "doc" | "docx" | "unsupported";
 
 export function detectFileKind(filePath: string): FileKind {
   const ext = extname(filePath).toLowerCase();
@@ -38,6 +38,8 @@ export function detectFileKind(filePath: string): FileKind {
   if (SUPPORTED_IMAGE_EXTS.has(ext)) return "image";
   if (SUPPORTED_VIDEO_EXTS.has(ext)) return "video";
   if (ext === ".pdf") return "pdf";
+  if (ext === ".doc") return "doc";
+  if (ext === ".docx") return "docx";
   return "unsupported";
 }
 
@@ -182,6 +184,7 @@ export async function extractPdfText(
 async function extractPdfMinerU(
   filePath: string,
   config: NonNullable<IngesterConfig["pdfParser"]>,
+  opts?: { modelVersion?: string },
 ): Promise<string> {
   const fs = await import("node:fs");
   const path = await import("node:path");
@@ -212,6 +215,9 @@ async function extractPdfMinerU(
     enable_table: true,
     ...(config.params ?? {}),
   };
+  if (opts?.modelVersion) {
+    submitBody.model_version = opts.modelVersion;
+  }
   // Use url or file depending on what we generated
   if (pdfUrl.startsWith("https://")) {
     submitBody.url = pdfUrl;
@@ -325,6 +331,178 @@ async function extractPdfBuiltin(filePath: string): Promise<string> {
   // Very rough extraction — just grab printable ASCII strings > 10 chars
   const matches = text.match(/[\x20-\x7E\n\r]{10,}/g) || [];
   return matches.join("\n");
+}
+
+// ============================================================================
+// Docx complexity auto-detection
+// ============================================================================
+
+/** Check if a .docx file is complex (has formulas, images, multi-column, etc.)
+ *  by reading its internal XML structure. Returns true if ANY complexity marker is found. */
+function isDocxComplex(filePath: string): boolean {
+  const childProcess = require("node:child_process");
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+
+  try {
+    // Extract word/document.xml from the docx ZIP
+    const docXml = childProcess.execSync(
+      `unzip -p "${filePath}" word/document.xml`,
+      { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 50 * 1024 * 1024 },
+    );
+
+    // 10 complexity markers (ECMA-376 / ISO 29500 standard tags)
+    const markers = [
+      "m:oMath",             // 1: Mathematical formulas (OMML)
+      "m:oMathPara",         // 2: Formula paragraphs
+      "w:drawing",           // 3: Embedded images/charts
+      "mc:AlternateContent", // 4: Compatibility content (usually wraps charts)
+      "w:txbxContent",       // 5: Text boxes (floating elements)
+      "w:object",            // 6: OLE embedded objects (embedded Excel, etc.)
+      "w:altChunk",          // 7: External content embedding
+      "w:subDoc",            // 8: Master/sub-document structure
+      "w:footnoteReference", // 9: Footnotes
+      "w:ins ",              // 10: Track changes - insertions
+    ];
+
+    for (const marker of markers) {
+      if (docXml.includes(marker)) return true;
+    }
+
+    // Check multi-column layout
+    const colsMatch = docXml.match(/<w:cols[^>]*num="(\d+)"/);
+    if (colsMatch && parseInt(colsMatch[1], 10) > 1) return true;
+
+    // Check image references from .rels file
+    try {
+      const relsXml = childProcess.execSync(
+        `unzip -p "${filePath}" word/_rels/document.xml.rels`,
+        { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 10 * 1024 * 1024 },
+      );
+      if (relsXml.includes('Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"')) {
+        return true;
+      }
+    } catch {
+      // No rels file — that's fine
+    }
+
+    return false;
+  } catch {
+    // If we can't read the XML, assume complex → vlm (fail-safe)
+    return true;
+  }
+}
+
+// ============================================================================
+// Docx processing
+// ============================================================================
+
+const SUPPORTED_DOC_EXTS = new Set([".doc", ".docx"]);
+
+async function processDocx(
+  filePath: string,
+  embedder: Embedder,
+  chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
+  pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
+): Promise<KBEntry[]> {
+  const base = basename(filePath);
+  const fileHash = await hashFile(filePath);
+
+  // Auto-detect complexity from XML
+  const complex = isDocxComplex(filePath);
+  const modelVersion = complex ? "vlm" : "pipeline";
+  console.log(`[Ark KB] Docx complexity: ${complex ? "complex→vlm" : "simple→pipeline"} (${base})`);
+
+  const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion });
+  const chunks = chunkText(text, chunkConfig);
+  const now = Date.now();
+
+  if (chunks.length === 0) {
+    const vectors = await embedder.embed(`[DOCX:${base}]`);
+    return [
+      {
+        id: `${base}_0_${now}`,
+        chunk_text: `[DOCX: ${base}]`,
+        vector: vectors[0],
+        source_path: base,
+        chunk_index: 0,
+        total_chunks: 1,
+        images: "[]",
+        file_type: "docx",
+        file_hash: fileHash,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  const vectors = await embedder.embed(chunks);
+
+  return chunks.map((chunk_text, i) => ({
+    id: `${base}_${i}_${now}`,
+    chunk_text: chunk_text.substring(0, 2000),
+    vector: vectors[i],
+    source_path: base,
+    chunk_index: i,
+    total_chunks: chunks.length,
+    images: "[]",
+    file_type: "docx",
+    file_hash: fileHash,
+    created_at: now,
+    updated_at: now,
+  }));
+}
+
+async function processDoc(
+  filePath: string,
+  embedder: Embedder,
+  chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
+  pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
+): Promise<KBEntry[]> {
+  const base = basename(filePath);
+  const fileHash = await hashFile(filePath);
+
+  // .doc is binary — always use vlm
+  console.log(`[Ark KB] Doc file: always→vlm (${base})`);
+  const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion: "vlm" });
+  const chunks = chunkText(text, chunkConfig);
+  const now = Date.now();
+
+  if (chunks.length === 0) {
+    const vectors = await embedder.embed(`[DOC:${base}]`);
+    return [
+      {
+        id: `${base}_0_${now}`,
+        chunk_text: `[DOC: ${base}]`,
+        vector: vectors[0],
+        source_path: base,
+        chunk_index: 0,
+        total_chunks: 1,
+        images: "[]",
+        file_type: "doc",
+        file_hash: fileHash,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  const vectors = await embedder.embed(chunks);
+
+  return chunks.map((chunk_text, i) => ({
+    id: `${base}_${i}_${now}`,
+    chunk_text: chunk_text.substring(0, 2000),
+    vector: vectors[i],
+    source_path: base,
+    chunk_index: i,
+    total_chunks: chunks.length,
+    images: "[]",
+    file_type: "doc",
+    file_hash: fileHash,
+    created_at: now,
+    updated_at: now,
+  }));
 }
 
 // ============================================================================
@@ -650,7 +828,7 @@ export class Ingester {
         }
 
         // Check if the embedding model supports this file type
-        const modality = kind === "pdf" ? "text" : kind; // PDFs are text after MinerU extraction
+        const modality = (kind === "pdf" || kind === "doc" || kind === "docx") ? "text" : kind; // PDFs are text after MinerU extraction
         const videoTextMode = kind === "video" && this.videoConfig.apiKey && this.videoMethod === "text"; // Text-mode video: VLM summary → text
         const videoMMMode = kind === "video" && this.videoMethod === "multimodal"; // Multimodal video: direct frame embedding
         const imageTextMode = kind === "image" && this.imageConfig.apiKey && this.imageMethod === "text"; // Text-mode image: VLM summary → text
@@ -707,6 +885,22 @@ export class Ingester {
               break;
             case "pdf":
               entries = await processPdf(
+                filePath,
+                this.embedder,
+                this.config.chunking,
+                this.config.pdfParser!,
+              );
+              break;
+            case "docx":
+              entries = await processDocx(
+                filePath,
+                this.embedder,
+                this.config.chunking,
+                this.config.pdfParser!,
+              );
+              break;
+            case "doc":
+              entries = await processDoc(
                 filePath,
                 this.embedder,
                 this.config.chunking,
