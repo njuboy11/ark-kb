@@ -606,6 +606,7 @@ export class Ingester {
 
   /** Per-file mutex: prevents TOCTOU races when the same file is ingested concurrently. */
   private _ingestLocks = new Map<string, Promise<IngestResult>>();
+  private _hashLocks = new Set<string>(); // Race-condition guard: prevent concurrent ingest of same content
 
   constructor(
     store: KnowledgeStore,
@@ -640,6 +641,7 @@ export class Ingester {
     }
 
     const promise = (async (): Promise<IngestResult> => {
+      let hashLock: string | null = null;
       try {
         const kind = detectFileKind(filePath);
         if (kind === "unsupported") {
@@ -663,11 +665,23 @@ export class Ingester {
         // Third layer: DB hash deduplication (different name, same content)
         try {
           const newHash = await hashFile(filePath);
+
+          // Hash-level lock: prevent concurrent ingestion of same content with different file names
+          if (this._hashLocks.has(newHash)) {
+            console.log(`[Ark KB] Skipping duplicate (hash already being ingested): ${base}`);
+            return { entries: 0, source: relative(this.knowledgePath, filePath), skipped: true };
+          }
+
           const hashExists = await this.store.hasFileHash(newHash);
           if (hashExists) {
             console.log(`[Ark KB] Skipping duplicate (hash match): ${base}`);
             return { entries: 0, source: relative(this.knowledgePath, filePath), skipped: true };
           }
+
+          // Lock this hash NOW, before the expensive PDF/video processing starts
+          // This prevents the race condition where file2's hash check passes before file1's insert commits
+          hashLock = newHash;
+          this._hashLocks.add(newHash);
         } catch {
           // Continue with ingestion if hash check fails
         }
@@ -724,6 +738,7 @@ export class Ingester {
         return { entries: entries.length, source: relativePath, skipped: false };
       } finally {
         this._ingestLocks.delete(filePath);
+        if (hashLock) this._hashLocks.delete(hashLock);
       }
     })();
 
