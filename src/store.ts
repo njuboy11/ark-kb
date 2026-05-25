@@ -196,15 +196,20 @@ export class KnowledgeStore {
    * Vector ANN search.
    * Returns results sorted by distance score.
    */
-  async search(queryVector: number[], topK: number): Promise<KBSearchResult[]> {
+  async search(queryVector: number[], topK: number, fileType?: string): Promise<KBSearchResult[]> {
     if (!this.table) {
       throw new Error("[Ark KB] Store not initialized — call init() first");
     }
 
-    const allResults = await this.table
+    let query = this.table
       .search(queryVector, { columns: ["vector"] })
-      .limit(topK * 3) // over-fetch for hybrid merge
-      .execute();
+      .limit(topK * 3) // over-fetch for hybrid merge;
+
+    if (fileType) {
+      query = query.filter(`file_type = '${fileType}'`);
+    }
+
+    const allResults = await query.execute();
 
     const rows = await collectRows(allResults);
 

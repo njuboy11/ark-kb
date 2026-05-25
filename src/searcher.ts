@@ -27,6 +27,7 @@ export interface SearchOptions {
   rerankerEnabled?: boolean;
   rerankerMinScore?: number;
   resultCount?: number;
+  fileType?: string;
 }
 
 export interface SearchResult {
@@ -149,7 +150,7 @@ export class Searcher {
 
     // 2. Run vector ANN search and BM25 search in parallel
     const [vecResults, bm25Results] = await Promise.all([
-      this.store.search(queryVector, topK),
+      this.store.search(queryVector, topK, options.fileType),
       this.store.searchBM25(options.query, topK),
     ]);
 

@@ -247,6 +247,8 @@ export class ArkKB {
       resultCount?: number;
       /** Target a specific KB; omit to search all KBs */
       kbName?: string;
+      /** Filter by file type, e.g. "xlsx"/"pdf"/"docx" */
+      fileType?: string;
     },
   ): Promise<any[]> {
     const methodConfig = {
@@ -271,6 +273,7 @@ export class ArkKB {
         rerankerEnabled: options?.rerankerEnabled,
         rerankerMinScore: options?.rerankerMinScore,
         resultCount: options?.resultCount,
+        fileType: options?.fileType,
       });
     }
 
@@ -284,7 +287,7 @@ export class ArkKB {
           method: methodConfig,
         });
         // Searcher returns SearchResult[] — transform to { entry, score }[] for KBManager
-        const hits = await s.search({ query: q, topK, resultCount: options?.resultCount });
+        const hits = await s.search({ query: q, topK, resultCount: options?.resultCount, fileType: options?.fileType });
         return hits.map(h => ({ entry: h, score: h.score }));
       },
       options?.topK ?? this.config.search.topK,
