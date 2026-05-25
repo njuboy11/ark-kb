@@ -8,6 +8,7 @@ import { readFile, stat, readdir } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { extname, basename, join, relative } from "node:path";
 import { createHash } from "node:crypto";
+import { execSync } from "node:child_process";
 import { KnowledgeStore, KBEntry } from "./store.js";
 import { Embedder, exposeMediaFile } from "./embedder.js";
 import { summarizeVideo, summarizeImage } from "./video.js";
@@ -275,12 +276,16 @@ async function extractPdfMinerU(
     if (state === "done") {
       fullZipUrl = pollData.data?.full_zip_url;
       if (!fullZipUrl) throw new Error(`MinerU task done but no full_zip_url`);
+      const totalPages = pollData.data?.extract_progress?.total_pages;
+      if (totalPages) console.log(`[Ark KB] MinerU task ${taskId.slice(0,8)} done (${totalPages} pages)`);
       break;
     }
     if (state === "failed") {
       throw new Error(`MinerU task failed: ${pollData.data?.err_msg || "unknown"}`);
     }
-    console.log(`[Ark KB] MinerU polling ${taskId.slice(0,8)}... state=${state} (${Math.round((Date.now()-startTime)/1000)}s)`);
+    const progress = pollData.data?.extract_progress;
+    const pageInfo = progress?.total_pages ? ` [page ${progress.extracted_pages ?? "?"}/${progress.total_pages}]` : "";
+    console.log(`[Ark KB] MinerU polling ${taskId.slice(0,8)}... state=${state} (${Math.round((Date.now()-startTime)/1000)}s)${pageInfo}`);
   }
 
   if (!fullZipUrl) {
@@ -340,14 +345,10 @@ async function extractPdfBuiltin(filePath: string): Promise<string> {
 /** Check if a .docx file is complex (has formulas, images, multi-column, etc.)
  *  by reading its internal XML structure. Returns true if ANY complexity marker is found. */
 function isDocxComplex(filePath: string): boolean {
-  const childProcess = require("node:child_process");
-  const fs = require("node:fs");
-  const os = require("node:os");
-  const path = require("node:path");
 
   try {
     // Extract word/document.xml from the docx ZIP
-    const docXml = childProcess.execSync(
+    const docXml = execSync(
       `unzip -p "${filePath}" word/document.xml`,
       { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 50 * 1024 * 1024 },
     );
@@ -376,7 +377,7 @@ function isDocxComplex(filePath: string): boolean {
 
     // Check image references from .rels file
     try {
-      const relsXml = childProcess.execSync(
+      const relsXml = execSync(
         `unzip -p "${filePath}" word/_rels/document.xml.rels`,
         { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 10 * 1024 * 1024 },
       );
