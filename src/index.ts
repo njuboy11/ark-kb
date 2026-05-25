@@ -4,7 +4,7 @@
  * Exports definePluginEntry-compatible register function for OpenClaw.
  */
 
-import { existsSync, mkdirSync, copyFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { KnowledgeStore } from "./store.js";
@@ -94,6 +94,10 @@ export class ArkKB {
 
   /** Searcher attached to the default KB (used when no specific kbName is given) */
   private _defaultSearcher!: Searcher;
+
+  // Auto-compact scheduler
+  private _compactTimer: ReturnType<typeof setTimeout> | null = null;
+  private _compactStatePath = "";
 
   private _failedListPath = "";
 
@@ -219,6 +223,10 @@ export class ArkKB {
     await this._initEmailIngester(api);
 
     console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
+
+    // Start auto-compact scheduler
+    this._startAutoCompact();
+
     this._initialized = true;
     } catch (err: any) {
       console.error("[Ark KB] init failed:", err.message);
@@ -482,7 +490,107 @@ export class ArkKB {
       await this.emailIngester.shutdown();
       this.emailIngester = null;
     }
+    if (this._compactTimer) {
+      clearTimeout(this._compactTimer);
+      this._compactTimer = null;
+    }
     await this.kbManager.close();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Auto-compact scheduler
+  // ---------------------------------------------------------------------------
+
+  private _startAutoCompact(): void {
+    const { retentionDays, intervalDays } = this.config.compact;
+    const intervalMs = intervalDays * 86_400_000;
+    this._compactStatePath = join(this.config.knowledgePath, ".ark-kb-compact-last");
+
+    const lastCompact = this._readLastCompactTime();
+    const elapsed = lastCompact ? Date.now() - lastCompact : Infinity;
+
+    if (!lastCompact || elapsed >= intervalMs) {
+      // First run or overdue — execute soon
+      this._scheduleCompact(0);
+    } else {
+      // Wait until next scheduled time
+      this._scheduleCompact(intervalMs - elapsed);
+    }
+  }
+
+  private _scheduleCompact(delayMs: number): void {
+    if (this._compactTimer) clearTimeout(this._compactTimer);
+    this._compactTimer = setTimeout(() => {
+      this._compactTimer = null;
+      this._runAutoCompact();
+    }, delayMs);
+    if (this._compactTimer?.unref) this._compactTimer.unref();
+  }
+
+  private async _runAutoCompact(): Promise<void> {
+    const { retentionDays, intervalDays } = this.config.compact;
+    const startTime = Date.now();
+    console.log(`[Ark KB] Auto-compact started (retentionDays=${retentionDays}, aggressive=${retentionDays < 7})`);
+
+    try {
+      const kbNames = this.kbManager.getAllKBNames();
+      let totalBytes = 0;
+      let totalFrags = 0;
+      let totalPrune = 0;
+
+      for (const kbName of kbNames) {
+        try {
+          const stats = await this.kbManager.compact(kbName, {
+            op: "all",
+            cleanupDays: retentionDays,
+            aggressive: retentionDays < 7,
+            dryRun: false,
+          });
+          if (stats) {
+            totalBytes += (stats.compaction?.bytesFreed ?? 0) + (stats.prune?.bytesRemoved ?? 0);
+            totalFrags += stats.compaction?.fragmentsRemoved ?? 0;
+            totalPrune += stats.prune?.oldVersionsRemoved ?? 0;
+            console.log(`[Ark KB] Compacted "${kbName}": ${stats.durationMs}ms`);
+          } else {
+            console.log(`[Ark KB] Compacted "${kbName}": skipped (KB not found)`);
+          }
+        } catch (err: any) {
+          console.warn(`[Ark KB] Auto-compact failed for KB "${kbName}": ${err.message}`);
+        }
+      }
+
+      const dur = Date.now() - startTime;
+      console.log(
+        `[Ark KB] Auto-compact done (${dur}ms): ${kbNames.length} KBs, ` +
+        `${totalFrags} fragments merged, ${totalPrune} old versions removed`
+      );
+    } catch (err: any) {
+      console.error(`[Ark KB] Auto-compact error: ${err.message}`);
+    } finally {
+      // Write last compact timestamp (even on partial failure — we tried)
+      this._writeLastCompactTime();
+      // Schedule next run
+      this._scheduleCompact(intervalDays * 86_400_000);
+    }
+  }
+
+  private _readLastCompactTime(): number | null {
+    try {
+      if (existsSync(this._compactStatePath)) {
+        const raw = readFileSync(this._compactStatePath, "utf8").trim();
+        const ts = parseInt(raw, 10);
+        return Number.isNaN(ts) ? null : ts;
+      }
+    } catch {/* ignore */}
+    return null;
+  }
+
+  private _writeLastCompactTime(): void {
+    try {
+      writeFileSync(this._compactStatePath, String(Date.now()), "utf8");
+    } catch (err: any) {
+      console.warn(`[Ark KB] Failed to write compact state: ${err.message}`);
+    }
   }
 
   // -------------------------------------------------------------------------

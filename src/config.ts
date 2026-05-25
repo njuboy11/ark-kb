@@ -77,6 +77,13 @@ export interface ArkKBConfig {
     endpoint?: string;
     apiKey?: string;
   };
+  /** Auto-compact configuration */
+  compact?: {
+    /** Days of data to keep uncompacted (compact only data older than this). Default 1. */
+    retentionDays?: number;
+    /** How often to run compact, in days. Default 1. */
+    intervalDays?: number;
+  };
   /** Email auto-ingestion config */
   emailIngester?: {
     enabled?: boolean;
@@ -170,6 +177,10 @@ export interface ResolvedConfig {
     scanIntervalMs: number;
     maxRetries: number;
   };
+  compact: {
+    retentionDays: number;
+    intervalDays: number;
+  };
 }
 
 export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
@@ -238,6 +249,10 @@ export const DEFAULTS: Omit<ResolvedConfig, "knowledgePath"> = {
     password: "",
     scanIntervalMs: 600000,
     maxRetries: 2,
+  },
+  compact: {
+    retentionDays: 1,
+    intervalDays: 1,
   },
 };
 
@@ -418,6 +433,16 @@ export function validateConfig(raw: unknown): string[] {
     }
   }
 
+  if (c.compact) {
+    const co = c.compact as Record<string, unknown>;
+    if (co.retentionDays !== undefined && (typeof co.retentionDays !== "number" || co.retentionDays < 1)) {
+      errors.push("compact.retentionDays must be a number >= 1");
+    }
+    if (co.intervalDays !== undefined && (typeof co.intervalDays !== "number" || co.intervalDays < 1)) {
+      errors.push("compact.intervalDays must be a number >= 1");
+    }
+  }
+
   // ── Cross-field validation ────────────────────────────────
   const e = c.embedding as Record<string, unknown> | undefined;
   const r = c.reranker as Record<string, unknown> | undefined;
@@ -589,6 +614,10 @@ export function resolveConfig(raw: ArkKBConfig): ResolvedConfig {
       password: raw.emailIngester?.password ?? DEFAULTS.emailIngester.password,
       scanIntervalMs: raw.emailIngester?.scanIntervalMs ?? DEFAULTS.emailIngester.scanIntervalMs,
       maxRetries: raw.emailIngester?.maxRetries ?? DEFAULTS.emailIngester.maxRetries,
+    },
+    compact: {
+      retentionDays: raw.compact?.retentionDays ?? DEFAULTS.compact.retentionDays,
+      intervalDays: raw.compact?.intervalDays ?? DEFAULTS.compact.intervalDays,
     },
   };
 }

@@ -77,5 +77,10 @@
     "password": "your-password",
     "scanIntervalMs": 300000,
     "maxRetries": 2
+  },
+  "compact": {
+    "_comment": "Auto-compact all KBs: calls LanceDB table.optimize() with compact+prune+index",
+    "retentionDays": 1,
+    "intervalDays": 1
   }
 }
