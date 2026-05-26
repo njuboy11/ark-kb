@@ -958,7 +958,7 @@ async function processVideo(filePath, embedder, vlmConfig, method = "text") {
 async function processPdf(filePath, embedder, chunkConfig, pdfConfig) {
     const base = basename(filePath);
     const fileHash = await hashFile(filePath);
-    const text = await extractPdfText(filePath, pdfConfig);
+    const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion: "vlm" });
     const chunks = chunkText(text, chunkConfig);
     const now = Date.now();
     if (chunks.length === 0) {
