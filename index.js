@@ -136,10 +136,8 @@ export class ArkKB {
         if (this._initialized)
             return;
         try {
-            // Init steps (set flag only on success)
-            // KBManager.init() handles auto-migration + scanning + store init
+            // Critical path: LanceDB + searcher — must always unlock
             await this.kbManager.init();
-            // Build default searcher (used when no specific KB is targeted)
             const defaultStore = this.store;
             this._defaultSearcher = new Searcher(defaultStore, this.embedder, this.config.knowledgePath, {
                 search: this.config.search,
@@ -149,65 +147,64 @@ export class ArkKB {
                     video: this.config.embedding.method.video,
                 },
             });
-            // Unlock: tools are now safe to use
+        }
+        finally {
+            // Unlock tools even if LanceDB fails — prevents permanent hang
             this._resolveReady();
-            const kp = this.config.knowledgePath;
-            // Initialize failed list path (used by watcher callback)
-            this._failedListPath = join(kp, ".ark-kb-failed.json");
-            let total = 0;
-            let files = 0;
-            if (kp) {
-                // Heal: re-index any files that were added while ArkKB was offline
-                try {
-                    const result = await this.kbManager.heal?.(kp);
-                    if (result) {
-                        total = result.healed ?? 0;
-                        files = (result.healed ?? 0) + (result.skipped ?? 0);
-                        console.log(`[Ark KB] Healed ${result.healed} files, skipped ${result.skipped}`);
-                    }
-                }
-                catch (err) {
-                    console.warn(`[Ark KB] Heal skipped: ${err.message}`);
+        }
+        // Non-critical: heal, watcher, email, compact can fail independently
+        const kp = this.config.knowledgePath;
+        // Initialize failed list path (used by watcher callback)
+        this._failedListPath = join(kp, ".ark-kb-failed.json");
+        let total = 0;
+        let files = 0;
+        if (kp) {
+            // Heal: re-index any files that were added while ArkKB was offline
+            try {
+                const result = await this.kbManager.heal?.(kp);
+                if (result) {
+                    total = result.healed ?? 0;
+                    files = (result.healed ?? 0) + (result.skipped ?? 0);
+                    console.log(`[Ark KB] Healed ${result.healed} files, skipped ${result.skipped}`);
                 }
             }
-            // Start watcher on the knowledge path root (covers all KB subfolders)
-            if (this.config.watcher.enabled && kp) {
-                this.watcher.start(kp, async (event, filePath) => {
-                    const base = filePath.split("/").pop() || filePath;
-                    if (event === "add" || event === "change") {
-                        try {
-                            const result = await this.kbManager.ingestByPath(filePath);
-                            if (result.entries === 0 && !result.skipped) {
-                                this._markFailed(filePath);
-                            }
-                        }
-                        catch (err) {
-                            console.error(`[Ark KB] Watcher ingest error (${filePath}): ${err.message}`);
+            catch (err) {
+                console.warn(`[Ark KB] Heal skipped: ${err.message}`);
+            }
+        }
+        // Start watcher on the knowledge path root (covers all KB subfolders)
+        if (this.config.watcher.enabled && kp) {
+            this.watcher.start(kp, async (event, filePath) => {
+                const base = filePath.split("/").pop() || filePath;
+                if (event === "add" || event === "change") {
+                    try {
+                        const result = await this.kbManager.ingestByPath(filePath);
+                        if (result.entries === 0 && !result.skipped) {
                             this._markFailed(filePath);
                         }
                     }
-                    else if (event === "unlink") {
-                        try {
-                            // Try to remove from all KBs (best effort)
-                            await this.kbManager.removeFromAll(base);
-                        }
-                        catch (err) {
-                            console.error(`[Ark KB] Watcher delete error (${base}): ${err.message}`);
-                        }
+                    catch (err) {
+                        console.error(`[Ark KB] Watcher ingest error (${filePath}): ${err.message}`);
+                        this._markFailed(filePath);
                     }
-                });
-            }
-            // Initialize email auto-ingester (api param only used in plugin mode)
-            await this._initEmailIngester(api);
-            console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
-            // Start auto-compact scheduler
-            this._startAutoCompact();
-            this._initialized = true;
+                }
+                else if (event === "unlink") {
+                    try {
+                        // Try to remove from all KBs (best effort)
+                        await this.kbManager.removeFromAll(base);
+                    }
+                    catch (err) {
+                        console.error(`[Ark KB] Watcher delete error (${base}): ${err.message}`);
+                    }
+                }
+            });
         }
-        catch (err) {
-            console.error("[Ark KB] init failed:", err.message);
-            throw err;
-        }
+        // Initialize email auto-ingester (api param only used in plugin mode)
+        await this._initEmailIngester(api);
+        console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
+        // Start auto-compact scheduler
+        this._startAutoCompact();
+        this._initialized = true;
     }
     // Latch: force callers to wait for init()
     async _ensureReady() {

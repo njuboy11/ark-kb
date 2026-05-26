@@ -241,6 +241,7 @@ export declare class KBManager {
      * Falls back to "default" if the immediate parent folder is not a known KB.
      */
     private _resolveKBForPath;
+    private _removeLock;
     /**
      * Remove a file (by source path) from all knowledge bases.
      */

@@ -163,30 +163,29 @@ export class ArkKB {
     if (this._initialized) return;
 
     try {
-    // Init steps (set flag only on success)
+      // Critical path: LanceDB + searcher — must always unlock
+      await this.kbManager.init();
 
-    // KBManager.init() handles auto-migration + scanning + store init
-    await this.kbManager.init();
-
-    // Build default searcher (used when no specific KB is targeted)
-    const defaultStore = this.store;
-    this._defaultSearcher = new Searcher(
-      defaultStore,
-      this.embedder,
-      this.config.knowledgePath,
-      {
-        search: this.config.search,
-        reranker: this.config.reranker,
-        method: {
-          image: this.config.embedding.method.image,
-          video: this.config.embedding.method.video,
+      const defaultStore = this.store;
+      this._defaultSearcher = new Searcher(
+        defaultStore,
+        this.embedder,
+        this.config.knowledgePath,
+        {
+          search: this.config.search,
+          reranker: this.config.reranker,
+          method: {
+            image: this.config.embedding.method.image,
+            video: this.config.embedding.method.video,
+          },
         },
-      },
-    );
+      );
+    } finally {
+      // Unlock tools even if LanceDB fails — prevents permanent hang
+      this._resolveReady();
+    }
 
-    // Unlock: tools are now safe to use
-    this._resolveReady();
-
+    // Non-critical: heal, watcher, email, compact can fail independently
     const kp = this.config.knowledgePath;
     // Initialize failed list path (used by watcher callback)
     this._failedListPath = join(kp, ".ark-kb-failed.json");
@@ -241,10 +240,6 @@ export class ArkKB {
     this._startAutoCompact();
 
     this._initialized = true;
-    } catch (err: any) {
-      console.error("[Ark KB] init failed:", err.message);
-      throw err;
-    }
   }
 
   // Latch: force callers to wait for init()

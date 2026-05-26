@@ -203,9 +203,11 @@ export class KnowledgeStore {
 
     let query = this.table
       .search(queryVector, { columns: ["vector"] })
-      .limit(topK * 3) // over-fetch for hybrid merge;
+      .limit(topK * 3); // over-fetch for hybrid merge
 
     if (fileType) {
+      const ALLOWED = new Set(["pdf","docx","doc","xls","xlsx","ppt","pptx","html","txt","jpg","jpeg","png","gif","webp","mp4","mov","avi","mkv","webm","eml"]);
+      if (!ALLOWED.has(fileType)) throw new Error(`[Ark KB] Invalid fileType filter: "${fileType}"`);
       query = query.filter(`file_type = '${fileType}'`);
     }
 

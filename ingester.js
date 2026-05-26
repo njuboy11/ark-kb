@@ -7,7 +7,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { extname, basename, join, relative } from "node:path";
 import { createHash } from "node:crypto";
-import { execSync } from "node:child_process";
+import { exec } from "node:child_process";
 import { exposeMediaFile } from "./embedder.js";
 import { summarizeVideo, summarizeImage } from "./video.js";
 import { dirname } from "node:path";
@@ -65,6 +65,17 @@ export async function hashFile(filePath) {
         stream.on("data", (chunk) => hash.update(chunk));
         stream.on("end", () => resolve(hash.digest("hex")));
         stream.on("error", reject);
+    });
+}
+/** Async exec — avoids blocking the event loop. */
+async function execAsync(cmd, opts) {
+    return new Promise((resolve, reject) => {
+        exec(cmd, { encoding: (opts?.encoding ?? "utf-8"), timeout: opts?.timeout ?? 30_000 }, (err, stdout) => {
+            if (err)
+                reject(err);
+            else
+                resolve(stdout);
+        });
     });
 }
 // ============================================================================
@@ -208,7 +219,7 @@ async function extractPdfMinerU(filePath, config, opts) {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${config.apiKey || ""}`,
         },
-        body: JSON.stringify(submitBody),
+        body: JSON.stringify(submitBody)
     });
     if (!submitRes.ok) {
         const errText = await submitRes.text();
@@ -230,7 +241,7 @@ async function extractPdfMinerU(filePath, config, opts) {
     while (Date.now() - startTime < timeoutMs) {
         await new Promise((r) => setTimeout(r, intervalMs));
         const pollRes = await fetch(pollUrl, {
-            headers: { "Authorization": `Bearer ${config.apiKey || ""}` },
+            headers: { "Authorization": `Bearer ${config.apiKey || ""}` }
         });
         if (!pollRes.ok) {
             const errText = await pollRes.text();
@@ -270,10 +281,8 @@ async function extractPdfMinerU(filePath, config, opts) {
         const zipBuffer = Buffer.from(await zipRes.arrayBuffer());
         fs.writeFileSync(zipPath, zipBuffer);
         // Extract using Node.js built-in (zlib + unzip via child_process)
-        const childProcess = await import("node:child_process");
-        const extractResult = childProcess.execSync(`unzip -o "${zipPath}" -d "${tmpDir}"`, {
-            encoding: "utf-8",
-            stdio: ["pipe", "pipe", "pipe"],
+        const extractResult = await execAsync(`unzip -o "${zipPath}" -d "${tmpDir}"`, {
+            encoding: "utf-8"
         });
         const fullMdPath = path.join(tmpDir, "full.md");
         if (fs.existsSync(fullMdPath)) {
@@ -309,10 +318,10 @@ async function extractPdfBuiltin(filePath) {
 // ============================================================================
 /** Check if a .docx file is complex (has formulas, images, multi-column, etc.)
  *  by reading its internal XML structure. Returns true if ANY complexity marker is found. */
-function isDocxComplex(filePath) {
+async function isDocxComplex(filePath) {
     try {
         // Extract word/document.xml from the docx ZIP
-        const docXml = execSync(`unzip -p "${filePath}" word/document.xml`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 50 * 1024 * 1024 });
+        const docXml = await execAsync(`unzip -p "${filePath}" word/document.xml`, { encoding: "utf-8", maxBuffer: 50 * 1024 * 1024 });
         // 10 complexity markers (ECMA-376 / ISO 29500 standard tags)
         const markers = [
             "m:oMath", // 1: Mathematical formulas (OMML)
@@ -336,7 +345,7 @@ function isDocxComplex(filePath) {
             return true;
         // Check image references from .rels file
         try {
-            const relsXml = execSync(`unzip -p "${filePath}" word/_rels/document.xml.rels`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 10 * 1024 * 1024 });
+            const relsXml = await execAsync(`unzip -p "${filePath}" word/_rels/document.xml.rels`, { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
             if (relsXml.includes('Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"')) {
                 return true;
             }
@@ -358,9 +367,9 @@ function isDocxComplex(filePath) {
 // Xlsx complexity auto-detection
 // ============================================================================
 /** Extract a specific sheet XML from xlsx ZIP */
-function extractSheetXml(filePath, sheetName) {
+async function extractSheetXml(filePath, sheetName) {
     try {
-        return execSync(`unzip -p "${filePath}" xl/worksheets/${sheetName}.xml 2>/dev/null`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 50 * 1024 * 1024 });
+        return await execAsync(`unzip -p "${filePath}" xl/worksheets/${sheetName}.xml 2>/dev/null`, { encoding: "utf-8", maxBuffer: 50 * 1024 * 1024 });
     }
     catch {
         return null;
@@ -368,14 +377,14 @@ function extractSheetXml(filePath, sheetName) {
 }
 /** Check if an .xlsx file is complex (has formulas, charts, images, pivot tables, multi-sheet, etc.)
  *  by reading its internal XML structure and ZIP directory. Returns true if ANY complexity marker is found. */
-function isXlsxComplex(filePath) {
+async function isXlsxComplex(filePath) {
     try {
         // 1. Formula cells: <f> or <f ...> tags in sheet XML
-        const sheet1Xml = extractSheetXml(filePath, "sheet1") ?? extractSheetXml(filePath, "sheet");
+        const sheet1Xml = await extractSheetXml(filePath, "sheet1") ?? await extractSheetXml(filePath, "sheet");
         if (sheet1Xml && /<f[\s>]/.test(sheet1Xml))
             return true;
         // 2-5. Special directories: charts, drawings, pivot tables, pivot caches
-        const fileList = execSync(`unzip -l "${filePath}"`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1 * 1024 * 1024 });
+        const fileList = await execAsync(`unzip -l "${filePath}"`, { encoding: "utf-8", maxBuffer: 1 * 1024 * 1024 });
         if (/xl\/charts\//.test(fileList))
             return true;
         if (/xl\/drawings\//.test(fileList))
@@ -386,7 +395,7 @@ function isXlsxComplex(filePath) {
             return true;
         // 6. Multiple sheets
         try {
-            const workbookXml = execSync(`unzip -p "${filePath}" xl/workbook.xml`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1 * 1024 * 1024 });
+            const workbookXml = await execAsync(`unzip -p "${filePath}" xl/workbook.xml`, { encoding: "utf-8", maxBuffer: 1 * 1024 * 1024 });
             const sheetCount = (workbookXml.match(/<sheet\s/g) || []).length;
             if (sheetCount > 1)
                 return true;
@@ -417,10 +426,10 @@ function isXlsxComplex(filePath) {
 // ============================================================================
 /** Check if a .pptx file is complex (has charts, media, diagrams, animations, embedded objects, etc.)
  *  by reading its internal ZIP structure. Returns true if ANY complexity marker is found. */
-function isPptxComplex(filePath) {
+async function isPptxComplex(filePath) {
     try {
         // Get full ZIP file listing
-        const fileList = execSync(`unzip -l "${filePath}"`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 2 * 1024 * 1024 });
+        const fileList = await execAsync(`unzip -l "${filePath}"`, { encoding: "utf-8", maxBuffer: 2 * 1024 * 1024 });
         // 1. Charts
         if (/ppt\/charts\//.test(fileList))
             return true;
@@ -443,7 +452,7 @@ function isPptxComplex(filePath) {
             return true;
         // Read first slide XML for per-slide markers
         try {
-            const slide1Xml = execSync(`unzip -p "${filePath}" ppt/slides/slide1.xml`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 10 * 1024 * 1024 });
+            const slide1Xml = await execAsync(`unzip -p "${filePath}" ppt/slides/slide1.xml`, { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
             // 5. OLE objects in slide content
             if (/<p:oleObj/.test(slide1Xml))
                 return true;
@@ -472,7 +481,7 @@ async function processDocx(filePath, embedder, chunkConfig, pdfConfig) {
     const base = basename(filePath);
     const fileHash = await hashFile(filePath);
     // Auto-detect complexity from XML
-    const complex = isDocxComplex(filePath);
+    const complex = await isDocxComplex(filePath);
     const modelVersion = complex ? "vlm" : "pipeline";
     console.log(`[Ark KB] Docx complexity: ${complex ? "complex→vlm" : "simple→pipeline"} (${base})`);
     const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion });
@@ -508,7 +517,7 @@ async function processDocx(filePath, embedder, chunkConfig, pdfConfig) {
         file_type: "docx",
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 async function processDoc(filePath, embedder, chunkConfig, pdfConfig) {
@@ -549,7 +558,7 @@ async function processDoc(filePath, embedder, chunkConfig, pdfConfig) {
         file_type: "doc",
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 // ============================================================================
@@ -559,7 +568,7 @@ async function processXlsx(filePath, embedder, chunkConfig, pdfConfig) {
     const base = basename(filePath);
     const fileHash = await hashFile(filePath);
     // Auto-detect complexity from XML
-    const complex = isXlsxComplex(filePath);
+    const complex = await isXlsxComplex(filePath);
     const modelVersion = complex ? "vlm" : "pipeline";
     console.log(`[Ark KB] Xlsx complexity: ${complex ? "complex→vlm" : "simple→pipeline"} (${base})`);
     const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion });
@@ -595,7 +604,7 @@ async function processXlsx(filePath, embedder, chunkConfig, pdfConfig) {
         file_type: "xlsx",
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 async function processXls(filePath, embedder, chunkConfig, pdfConfig) {
@@ -636,7 +645,7 @@ async function processXls(filePath, embedder, chunkConfig, pdfConfig) {
         file_type: "xls",
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 // ============================================================================
@@ -646,7 +655,7 @@ async function processPptx(filePath, embedder, chunkConfig, pdfConfig) {
     const base = basename(filePath);
     const fileHash = await hashFile(filePath);
     // Auto-detect complexity from ZIP structure
-    const complex = isPptxComplex(filePath);
+    const complex = await isPptxComplex(filePath);
     const modelVersion = complex ? "vlm" : "pipeline";
     console.log(`[Ark KB] Pptx complexity: ${complex ? "complex→vlm" : "simple→pipeline"} (${base})`);
     const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion });
@@ -682,7 +691,7 @@ async function processPptx(filePath, embedder, chunkConfig, pdfConfig) {
         file_type: "pptx",
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 async function processPpt(filePath, embedder, chunkConfig, pdfConfig) {
@@ -723,7 +732,7 @@ async function processPpt(filePath, embedder, chunkConfig, pdfConfig) {
         file_type: "ppt",
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 // ============================================================================
@@ -767,7 +776,7 @@ async function processHtml(filePath, embedder, chunkConfig, pdfConfig) {
         file_type: "html",
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 // ============================================================================
@@ -794,7 +803,7 @@ async function processText(filePath, embedder, chunkConfig) {
         file_type: extname(filePath).slice(1),
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 // ============================================================================
@@ -812,7 +821,7 @@ async function processImage(filePath, embedder, opts) {
             const summary = await summarizeImage(filePath, {
                 apiKey: opts.imageConfig.apiKey,
                 endpoint: opts.imageConfig.endpoint,
-                timeoutMs: opts.imageConfig.timeoutMs ?? 60000,
+                timeoutMs: opts.imageConfig.timeoutMs ?? 60000
             });
             const chunks = chunkText(summary, { maxTokens: 400, overlapTokens: 50, strategy: "paragraph" });
             if (chunks.length === 0)
@@ -829,7 +838,7 @@ async function processImage(filePath, embedder, opts) {
                 file_type: extname(filePath).slice(1),
                 file_hash: fileHash,
                 created_at: now,
-                updated_at: now,
+                updated_at: now
             }));
         }
         catch (err) {
@@ -914,7 +923,7 @@ async function processVideo(filePath, embedder, vlmConfig, method = "text") {
             endpoint: vlmConfig.endpoint,
             timeoutMs: 120_000,
             maxFrames: vlmConfig.maxFrames ?? 100,
-            tileSize: 10,
+            tileSize: 10
         });
         const chunks = chunkText(result.summary, { maxTokens: 400, overlapTokens: 50, strategy: "paragraph" });
         if (chunks.length === 0)
@@ -931,7 +940,7 @@ async function processVideo(filePath, embedder, vlmConfig, method = "text") {
             file_type: extname(filePath).slice(1),
             file_hash: fileHash,
             created_at: now,
-            updated_at: now,
+            updated_at: now
         }));
     }
     catch (err) {
@@ -992,7 +1001,7 @@ async function processPdf(filePath, embedder, chunkConfig, pdfConfig) {
         file_type: "pdf",
         file_hash: fileHash,
         created_at: now,
-        updated_at: now,
+        updated_at: now
     }));
 }
 export class Ingester {
@@ -1081,7 +1090,7 @@ export class Ingester {
                         case "image":
                             entries = await processImage(filePath, this.embedder, {
                                 imageConfig: this.imageConfig,
-                                method: this.imageMethod,
+                                method: this.imageMethod
                             });
                             break;
                         case "video":

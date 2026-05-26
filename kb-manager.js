@@ -479,22 +479,33 @@ export class KBManager {
     // -------------------------------------------------------------------------
     // Remove from all KBs
     // -------------------------------------------------------------------------
+    _removeLock = Promise.resolve();
     /**
      * Remove a file (by source path) from all knowledge bases.
      */
     async removeFromAll(sourcePath) {
-        const results = [];
-        for (const [name, store] of this.kbs.entries()) {
-            try {
-                const deleted = await store.deleteBySource(sourcePath);
-                results.push({ kbName: name, deleted });
+        // Serialize to prevent concurrent removal races
+        const prev = this._removeLock;
+        let resolve;
+        this._removeLock = new Promise(r => { resolve = r; });
+        await prev;
+        try {
+            const results = [];
+            for (const [name, store] of this.kbs.entries()) {
+                try {
+                    const deleted = await store.deleteBySource(sourcePath);
+                    results.push({ kbName: name, deleted });
+                }
+                catch (err) {
+                    console.warn(`[MultiKB] removeFromAll failed for KB "${name}": ${err.message}`);
+                    results.push({ kbName: name, deleted: 0 });
+                }
             }
-            catch (err) {
-                console.warn(`[MultiKB] removeFromAll failed for KB "${name}": ${err.message}`);
-                results.push({ kbName: name, deleted: 0 });
-            }
+            return results;
         }
-        return results;
+        finally {
+            resolve();
+        }
     }
     // -------------------------------------------------------------------------
     // Shutdown

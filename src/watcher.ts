@@ -73,8 +73,9 @@ export class FileWatcher {
           if (s.isFile()) {
             await this.debouncedDispatch("add", filePath);
           }
-        } catch {
+        } catch (err: any) {
           // File no longer exists → deleted
+          if (err.code !== "ENOENT") console.error(`[Ark KB] Watcher stat error (${filePath}): ${err.message}`);
           await this.handler("unlink", filePath);
         }
       } else if (event === "change") {
@@ -109,8 +110,9 @@ export class FileWatcher {
         }
 
         this.fileSizes.set(filePath, s.size);
-      } catch {
-        // File disappeared
+      } catch (err: any) {
+        // File disappeared or unreadable
+        if (err.code !== "ENOENT") console.error(`[Ark KB] Watcher debounce stat error (${filePath}): ${err.message}`);
         this.debounceTimers.delete(filePath);
         this.fileSizes.delete(filePath);
         return;
@@ -124,8 +126,10 @@ export class FileWatcher {
       // Final stability check
       try {
         await stat(filePath);
-      } catch {
-        return; // File is gone
+      } catch (err: any) {
+        // File is gone or inaccessible — abort
+        if (err.code !== "ENOENT") console.error(`[Ark KB] Watcher timer stat error (${filePath}): ${err.message}`);
+        return;
       }
 
       await this.safeHandler(event, filePath);

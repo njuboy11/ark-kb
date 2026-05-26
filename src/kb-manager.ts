@@ -622,10 +622,18 @@ export class KBManager {
   // Remove from all KBs
   // -------------------------------------------------------------------------
 
+  private _removeLock: Promise<void> = Promise.resolve();
+
   /**
    * Remove a file (by source path) from all knowledge bases.
    */
   async removeFromAll(sourcePath: string): Promise<RemoveResult[]> {
+    // Serialize to prevent concurrent removal races
+    const prev = this._removeLock;
+    let resolve: () => void;
+    this._removeLock = new Promise<void>(r => { resolve = r; });
+    await prev;
+    try {
     const results: RemoveResult[] = [];
     for (const [name, store] of this.kbs.entries()) {
       try {
@@ -637,6 +645,9 @@ export class KBManager {
       }
     }
     return results;
+    } finally {
+      resolve!();
+    }
   }
 
   // -------------------------------------------------------------------------
