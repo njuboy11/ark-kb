@@ -513,8 +513,8 @@ export class ArkKB {
     const elapsed = lastCompact ? Date.now() - lastCompact : Infinity;
 
     if (!lastCompact || elapsed >= intervalMs) {
-      // First run or overdue — execute soon
-      this._scheduleCompact(0);
+      // First run or overdue — execute immediately (don't use setTimeout(0)+unref, it may never fire)
+      this._runAutoCompact();
     } else {
       // Wait until next scheduled time
       this._scheduleCompact(intervalMs - elapsed);
