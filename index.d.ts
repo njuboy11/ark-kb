@@ -27,6 +27,9 @@ export declare class ArkKB {
     /** Returns the default KB's Ingester (backward compat for tools) */
     get ingester(): Ingester;
     private _initialized;
+    /** Promise that resolves when init() has finished (searcher/store ready). */
+    private _ready;
+    private _resolveReady;
     /** Searcher attached to the default KB (used when no specific kbName is given) */
     private _defaultSearcher;
     private _compactTimer;
@@ -34,6 +37,7 @@ export declare class ArkKB {
     private _failedListPath;
     constructor(rawConfig?: ArkKBConfig);
     init(api?: any): Promise<void>;
+    private _ensureReady;
     search(query: string, options?: {
         topK?: number;
         rerankerEnabled?: boolean;

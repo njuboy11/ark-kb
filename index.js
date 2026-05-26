@@ -66,6 +66,9 @@ export class ArkKB {
     }
     /** Returns a Searcher attached to the default KB store (backward compat for tools) */
     get searcher() {
+        if (!this._defaultSearcher) {
+            throw new Error("[Ark KB] Searcher not ready — init() still running");
+        }
         return this._defaultSearcher;
     }
     /** Returns the default KB's Ingester (backward compat for tools) */
@@ -78,6 +81,9 @@ export class ArkKB {
     // Private state
     // -------------------------------------------------------------------------
     _initialized = false;
+    /** Promise that resolves when init() has finished (searcher/store ready). */
+    _ready;
+    _resolveReady;
     /** Searcher attached to the default KB (used when no specific kbName is given) */
     _defaultSearcher;
     // Auto-compact scheduler
@@ -86,6 +92,8 @@ export class ArkKB {
     _failedListPath = "";
     constructor(rawConfig = {}) {
         this.config = resolveConfig(rawConfig);
+        // Latch: searcher/store not ready until init() finishes
+        this._ready = new Promise((resolve) => { this._resolveReady = resolve; });
         const knowledgePath = expandPath(this.config.knowledgePath);
         const dbPath = expandPath(this.config.storage.dbPath);
         if (!knowledgePath) {
@@ -141,6 +149,8 @@ export class ArkKB {
                     video: this.config.embedding.method.video,
                 },
             });
+            // Unlock: tools are now safe to use
+            this._resolveReady();
             const kp = this.config.knowledgePath;
             // Initialize failed list path (used by watcher callback)
             this._failedListPath = join(kp, ".ark-kb-failed.json");
@@ -199,10 +209,15 @@ export class ArkKB {
             throw err;
         }
     }
+    // Latch: force callers to wait for init()
+    async _ensureReady() {
+        await this._ready;
+    }
     // -------------------------------------------------------------------------
     // Search
     // -------------------------------------------------------------------------
     async search(query, options) {
+        await this._ensureReady();
         const methodConfig = {
             image: this.config.embedding.method.image,
             video: this.config.embedding.method.video,
@@ -336,12 +351,14 @@ export class ArkKB {
     // Ingest
     // -------------------------------------------------------------------------
     async ingestFile(filePath) {
+        await this._ensureReady();
         return await this.kbManager.ingestByPath(filePath);
     }
     // -------------------------------------------------------------------------
     // Remove
     // -------------------------------------------------------------------------
     async removeSource(sourcePath, kbName) {
+        await this._ensureReady();
         if (kbName) {
             const store = this.kbManager.getKB(kbName);
             if (!store)
@@ -356,6 +373,7 @@ export class ArkKB {
     // Status
     // -------------------------------------------------------------------------
     async status(kbName) {
+        await this._ensureReady();
         if (kbName) {
             const store = this.kbManager.getKB(kbName);
             if (!store)
@@ -393,12 +411,15 @@ export class ArkKB {
     // KB management (new multi-KB API)
     // -------------------------------------------------------------------------
     async createKB(name) {
+        await this._ensureReady();
         await this.kbManager.createKB(name);
     }
     async deleteKB(name, confirm) {
+        await this._ensureReady();
         return await this.kbManager.deleteKB(name, confirm);
     }
     async listKBs() {
+        await this._ensureReady();
         return await this.kbManager.listKBs();
     }
     // -------------------------------------------------------------------------
