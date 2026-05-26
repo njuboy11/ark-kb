@@ -3,7 +3,7 @@
  * Wires together all components with nested config support.
  * Exports definePluginEntry-compatible register function for OpenClaw.
  */
-import { existsSync, mkdirSync, copyFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Embedder } from "./embedder.js";
@@ -13,6 +13,23 @@ import { EmailIngester } from "./email-ingester.js";
 import { resolveConfig, loadConfigFromFile, validateConfig, } from "./config.js";
 import { registerKBTools } from "./tools.js";
 import { Searcher } from "./searcher.js";
+/**
+ * Safely parse images field whether it's already an array or a JSON string.
+ * Searcher.search() already parses images to array, so upstream callers
+ * may receive arrays that should not be re-parsed.
+ */
+function safeParseImages(val) {
+    if (Array.isArray(val))
+        return val;
+    if (typeof val !== "string" || !val)
+        return [];
+    try {
+        return JSON.parse(val);
+    }
+    catch {
+        return [];
+    }
+}
 // ============================================================================
 // ArkKB — Core class (used both by the plugin and for direct Node.js usage)
 // ============================================================================
@@ -63,6 +80,9 @@ export class ArkKB {
     _initialized = false;
     /** Searcher attached to the default KB (used when no specific kbName is given) */
     _defaultSearcher;
+    // Auto-compact scheduler
+    _compactTimer = null;
+    _compactStatePath = "";
     _failedListPath = "";
     constructor(rawConfig = {}) {
         this.config = resolveConfig(rawConfig);
@@ -77,33 +97,12 @@ export class ArkKB {
         if (!existsSync(dbPath)) {
             mkdirSync(dbPath, { recursive: true });
         }
-        // Create KBManager — drives all KB operations
+        // Create KBManager — pass full config to avoid field-dropping bugs
         this.kbManager = new KBManager({
             knowledgePath,
             dbPath,
             vectorDim: this.config.embedding.dimensions,
-            embedderConfig: {
-                api: this.config.embedding.api,
-                endpoint: this.config.embedding.endpoint,
-                apiKey: this.config.embedding.apiKey,
-                model: this.config.embedding.model,
-                chunking: this.config.chunking,
-            },
-            videoConfig: {
-                endpoint: this.config.videoSummarizer.endpoint,
-                apiKey: this.config.videoSummarizer.apiKey,
-                maxFrames: this.config.videoSummarizer.maxFrames,
-                timeoutMs: 120_000,
-            },
-            imageConfig: {
-                endpoint: this.config.imageSummarizer.endpoint,
-                apiKey: this.config.imageSummarizer.apiKey,
-                timeoutMs: 60_000,
-            },
-            embeddingMethod: {
-                image: this.config.embedding.method.image,
-                video: this.config.embedding.method.video,
-            },
+            fullConfig: this.config,
         });
         // Embedder for query embedding (used in search)
         this.embedder = new Embedder({
@@ -191,6 +190,8 @@ export class ArkKB {
             // Initialize email auto-ingester (api param only used in plugin mode)
             await this._initEmailIngester(api);
             console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
+            // Start auto-compact scheduler
+            this._startAutoCompact();
             this._initialized = true;
         }
         catch (err) {
@@ -223,6 +224,7 @@ export class ArkKB {
                 rerankerEnabled: options?.rerankerEnabled,
                 rerankerMinScore: options?.rerankerMinScore,
                 resultCount: options?.resultCount,
+                fileType: options?.fileType,
             });
         }
         // Search all KBs
@@ -233,7 +235,7 @@ export class ArkKB {
                 method: methodConfig,
             });
             // Searcher returns SearchResult[] — transform to { entry, score }[] for KBManager
-            const hits = await s.search({ query: q, topK, resultCount: options?.resultCount });
+            const hits = await s.search({ query: q, topK, resultCount: options?.resultCount, fileType: options?.fileType });
             return hits.map(h => ({ entry: h, score: h.score }));
         }, options?.topK ?? this.config.search.topK);
         // Apply global reranking if enabled (rerank across all KB results)
@@ -247,7 +249,7 @@ export class ArkKB {
             source_path: r.entry.source_path,
             chunk_index: r.entry.chunk_index,
             total_chunks: r.entry.total_chunks,
-            images: JSON.parse(r.entry.images || "[]"),
+            images: safeParseImages(r.entry.images),
             file_type: r.entry.file_type,
             kbName: r.kbName,
         }));
@@ -267,7 +269,7 @@ export class ArkKB {
                 source_path: r.entry.source_path,
                 chunk_index: r.entry.chunk_index,
                 total_chunks: r.entry.total_chunks,
-                images: JSON.parse(r.entry.images || "[]"),
+                images: safeParseImages(r.entry.images),
                 file_type: r.entry.file_type,
                 kbName: r.kbName,
             }));
@@ -305,7 +307,7 @@ export class ArkKB {
                         source_path: r.entry.source_path ?? "",
                         chunk_index: r.entry.chunk_index ?? 0,
                         total_chunks: r.entry.total_chunks ?? 0,
-                        images: JSON.parse(r.entry.images || "[]"),
+                        images: safeParseImages(r.entry.images),
                         file_type: r.entry.file_type ?? "",
                         kbName: r.kbName,
                     }))
@@ -325,7 +327,7 @@ export class ArkKB {
             source_path: r.entry.source_path,
             chunk_index: r.entry.chunk_index,
             total_chunks: r.entry.total_chunks,
-            images: JSON.parse(r.entry.images || "[]"),
+            images: safeParseImages(r.entry.images),
             file_type: r.entry.file_type,
             kbName: r.kbName,
         }));
@@ -408,7 +410,103 @@ export class ArkKB {
             await this.emailIngester.shutdown();
             this.emailIngester = null;
         }
+        if (this._compactTimer) {
+            clearTimeout(this._compactTimer);
+            this._compactTimer = null;
+        }
         await this.kbManager.close();
+    }
+    // ---------------------------------------------------------------------------
+    // Auto-compact scheduler
+    // ---------------------------------------------------------------------------
+    _startAutoCompact() {
+        const { retentionDays, intervalDays } = this.config.compact;
+        const intervalMs = intervalDays * 86_400_000;
+        this._compactStatePath = join(this.config.knowledgePath, ".ark-kb-compact-last");
+        const lastCompact = this._readLastCompactTime();
+        const elapsed = lastCompact ? Date.now() - lastCompact : Infinity;
+        if (!lastCompact || elapsed >= intervalMs) {
+            // First run or overdue — execute immediately (don't use setTimeout(0)+unref, it may never fire)
+            this._runAutoCompact();
+        }
+        else {
+            // Wait until next scheduled time
+            this._scheduleCompact(intervalMs - elapsed);
+        }
+    }
+    _scheduleCompact(delayMs) {
+        if (this._compactTimer)
+            clearTimeout(this._compactTimer);
+        this._compactTimer = setTimeout(() => {
+            this._compactTimer = null;
+            this._runAutoCompact();
+        }, delayMs);
+        if (this._compactTimer?.unref)
+            this._compactTimer.unref();
+    }
+    async _runAutoCompact() {
+        const { retentionDays, intervalDays } = this.config.compact;
+        const startTime = Date.now();
+        console.log(`[Ark KB] Auto-compact started (retentionDays=${retentionDays}, aggressive=${retentionDays < 7})`);
+        try {
+            const kbNames = this.kbManager.getAllKBNames();
+            let totalBytes = 0;
+            let totalFrags = 0;
+            let totalPrune = 0;
+            for (const kbName of kbNames) {
+                try {
+                    const stats = await this.kbManager.compact(kbName, {
+                        op: "all",
+                        cleanupDays: retentionDays,
+                        aggressive: retentionDays < 7,
+                        dryRun: false,
+                    });
+                    if (stats) {
+                        totalBytes += (stats.compaction?.bytesFreed ?? 0) + (stats.prune?.bytesRemoved ?? 0);
+                        totalFrags += stats.compaction?.fragmentsRemoved ?? 0;
+                        totalPrune += stats.prune?.oldVersionsRemoved ?? 0;
+                        console.log(`[Ark KB] Compacted "${kbName}": ${stats.durationMs}ms`);
+                    }
+                    else {
+                        console.log(`[Ark KB] Compacted "${kbName}": skipped (KB not found)`);
+                    }
+                }
+                catch (err) {
+                    console.warn(`[Ark KB] Auto-compact failed for KB "${kbName}": ${err.message}`);
+                }
+            }
+            const dur = Date.now() - startTime;
+            console.log(`[Ark KB] Auto-compact done (${dur}ms): ${kbNames.length} KBs, ` +
+                `${totalFrags} fragments merged, ${totalPrune} old versions removed`);
+        }
+        catch (err) {
+            console.error(`[Ark KB] Auto-compact error: ${err.message}`);
+        }
+        finally {
+            // Write last compact timestamp (even on partial failure — we tried)
+            this._writeLastCompactTime();
+            // Schedule next run
+            this._scheduleCompact(intervalDays * 86_400_000);
+        }
+    }
+    _readLastCompactTime() {
+        try {
+            if (existsSync(this._compactStatePath)) {
+                const raw = readFileSync(this._compactStatePath, "utf8").trim();
+                const ts = parseInt(raw, 10);
+                return Number.isNaN(ts) ? null : ts;
+            }
+        }
+        catch { /* ignore */ }
+        return null;
+    }
+    _writeLastCompactTime() {
+        try {
+            writeFileSync(this._compactStatePath, String(Date.now()), "utf8");
+        }
+        catch (err) {
+            console.warn(`[Ark KB] Failed to write compact state: ${err.message}`);
+        }
     }
     // -------------------------------------------------------------------------
     // Retry failed files (for backward compat)
@@ -578,25 +676,36 @@ export function register(api) {
         arkConfig = fileResult.config;
     }
     else {
-        const examplePath = join(pluginDir, "plugin-config.example.json");
-        if (existsSync(examplePath)) {
-            console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
-            copyFileSync(examplePath, standalonePath);
-            console.log("[Ark KB] Created", standalonePath, "— edit this file to configure.");
-            const retry = loadConfigFromFile(standalonePath);
-            if (retry.config) {
-                arkConfig = retry.config;
+        // Never auto-overwrite an existing config file — it may contain real credentials
+        // that just happen to be in a format the loader can't parse right now.
+        if (!existsSync(standalonePath)) {
+            const examplePath = join(pluginDir, "plugin-config.example.json");
+            if (existsSync(examplePath)) {
+                console.log("[Ark KB] No standalone config found, auto-creating from example:", examplePath);
+                copyFileSync(examplePath, standalonePath);
+                console.log("[Ark KB] Created", standalonePath, "— edit this file to configure.");
+                const retry = loadConfigFromFile(standalonePath);
+                if (retry.config) {
+                    arkConfig = retry.config;
+                }
+                else {
+                    console.log("[Ark KB] Example config failed to load, falling back to openclaw.json");
+                    arkConfig = (api.pluginConfig ?? api.config ?? {});
+                    fromOpenClaw = true;
+                }
             }
             else {
-                console.log("[Ark KB] Falling back to openclaw.json");
+                console.log("[Ark KB] No config files found, falling back to openclaw.json");
                 arkConfig = (api.pluginConfig ?? api.config ?? {});
                 fromOpenClaw = true;
             }
         }
         else {
-            console.log("[Ark KB] No config files found, falling back to openclaw.json");
-            arkConfig = (api.pluginConfig ?? api.config ?? {});
-            fromOpenClaw = true;
+            console.error("[Ark KB] plugin-config.json exists but failed to parse.");
+            console.error("[Ark KB] Fix the JSON syntax at:", standalonePath);
+            console.error("[Ark KB] Refusing to start with degraded config — no openclaw.json fallback.");
+            throw new Error(`[Ark KB] Configuration file "${standalonePath}" is invalid. ` +
+                `Check JSON syntax or restore from backup.`);
         }
     }
     if (fromOpenClaw) {

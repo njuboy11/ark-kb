@@ -29,6 +29,8 @@ export declare class ArkKB {
     private _initialized;
     /** Searcher attached to the default KB (used when no specific kbName is given) */
     private _defaultSearcher;
+    private _compactTimer;
+    private _compactStatePath;
     private _failedListPath;
     constructor(rawConfig?: ArkKBConfig);
     init(api?: any): Promise<void>;
@@ -39,6 +41,8 @@ export declare class ArkKB {
         resultCount?: number;
         /** Target a specific KB; omit to search all KBs */
         kbName?: string;
+        /** Filter by file type, e.g. "xlsx"/"pdf"/"docx" */
+        fileType?: string;
     }): Promise<any[]>;
     /**
      * Apply a second-stage rerank across merged multi-KB results.
@@ -61,6 +65,11 @@ export declare class ArkKB {
     }>;
     listKBs(): Promise<KBInfo[]>;
     shutdown(): Promise<void>;
+    private _startAutoCompact;
+    private _scheduleCompact;
+    private _runAutoCompact;
+    private _readLastCompactTime;
+    private _writeLastCompactTime;
     get ingesterInstance(): Ingester;
     /**
      * Get the user\'s LLM config from the OpenClaw plugin API or openclaw.json.
@@ -91,6 +100,10 @@ export declare class ArkKB {
                     type: string;
                     description: string;
                 };
+                fileType: {
+                    type: string;
+                    description: string;
+                };
                 filePath?: undefined;
                 sourcePath?: undefined;
                 name?: undefined;
@@ -102,6 +115,7 @@ export declare class ArkKB {
             query: string;
             count?: number;
             kb?: string;
+            fileType?: string;
         }): Promise<{
             content: {
                 type: "text";
@@ -138,6 +152,7 @@ export declare class ArkKB {
                 query?: undefined;
                 count?: undefined;
                 kb?: undefined;
+                fileType?: undefined;
                 sourcePath?: undefined;
                 name?: undefined;
                 confirm?: undefined;
@@ -168,6 +183,7 @@ export declare class ArkKB {
                 };
                 query?: undefined;
                 count?: undefined;
+                fileType?: undefined;
                 filePath?: undefined;
                 name?: undefined;
                 confirm?: undefined;
@@ -195,6 +211,7 @@ export declare class ArkKB {
                 };
                 query?: undefined;
                 count?: undefined;
+                fileType?: undefined;
                 filePath?: undefined;
                 sourcePath?: undefined;
                 name?: undefined;
@@ -223,6 +240,7 @@ export declare class ArkKB {
                 query?: undefined;
                 count?: undefined;
                 kb?: undefined;
+                fileType?: undefined;
                 filePath?: undefined;
                 sourcePath?: undefined;
                 confirm?: undefined;
@@ -254,6 +272,7 @@ export declare class ArkKB {
                 query?: undefined;
                 count?: undefined;
                 kb?: undefined;
+                fileType?: undefined;
                 filePath?: undefined;
                 sourcePath?: undefined;
             };
@@ -277,6 +296,7 @@ export declare class ArkKB {
                 query?: undefined;
                 count?: undefined;
                 kb?: undefined;
+                fileType?: undefined;
                 filePath?: undefined;
                 sourcePath?: undefined;
                 name?: undefined;
