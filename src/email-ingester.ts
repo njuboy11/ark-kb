@@ -481,7 +481,7 @@ export class EmailIngester {
     kbList: string,
   ): Promise<string[]> {
     const ext = path.extname(att.filename).toLowerCase();
-    const textExts = [".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"];
+    const textExts = [".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp"];
     const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"];
     const videoExts = [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"];
 

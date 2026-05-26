@@ -20,18 +20,23 @@ import { IngesterConfig } from "./index.js";
 // ============================================================================
 
 const SUPPORTED_TEXT_EXTS = new Set([
-  ".md", ".txt", ".csv", ".html", ".htm",
+  ".md", ".txt", ".csv",
   ".json", ".yaml", ".yml", ".xml",
   ".py", ".js", ".ts", ".jsx", ".tsx",
   ".java", ".c", ".cpp", ".h", ".go",
   ".rs", ".rb", ".php", ".sh", ".bash",
   ".sql", ".r", ".scala", ".lua", ".toml",
+  ".css", ".scss", ".less",       // 前端样式
+  ".vue",                          // Vue SFC
+  ".swift", ".kt", ".dart",        // 移动端
+  ".log", ".conf", ".cfg", ".ini", ".env",  // 运维配置
+  ".tex", ".rst", ".org", ".adoc", // 学术/文档
 ]);
 
 const SUPPORTED_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".jfif", ".webp", ".gif", ".bmp", ".svg", ".tiff", ".tif", ".ico", ".heic", ".heif", ".raw", ".cr2", ".nef", ".arw"]);
 const SUPPORTED_VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".3gp", ".ogv", ".ts"]);
 
-export type FileKind = "text" | "image" | "video" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "unsupported";
+export type FileKind = "text" | "image" | "video" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "html" | "unsupported";
 
 export function detectFileKind(filePath: string): FileKind {
   const ext = extname(filePath).toLowerCase();
@@ -45,6 +50,7 @@ export function detectFileKind(filePath: string): FileKind {
   if (ext === ".xlsx") return "xlsx";
   if (ext === ".ppt") return "ppt";
   if (ext === ".pptx") return "pptx";
+  if (ext === ".html" || ext === ".htm") return "html";
   return "unsupported";
 }
 
@@ -854,6 +860,61 @@ async function processPpt(
 }
 
 // ============================================================================
+// HTML processing
+// ============================================================================
+
+async function processHtml(
+  filePath: string,
+  embedder: Embedder,
+  chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
+  pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
+): Promise<KBEntry[]> {
+  const base = basename(filePath);
+  const fileHash = await hashFile(filePath);
+
+  // HTML always uses MinerU-HTML model for structured extraction
+  console.log(`[Ark KB] Html: MinerU-HTML (${base})`);
+  const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion: "MinerU-HTML" });
+  const chunks = chunkText(text, chunkConfig);
+  const now = Date.now();
+
+  if (chunks.length === 0) {
+    const vectors = await embedder.embed(`[HTML:${base}]`);
+    return [
+      {
+        id: `${base}_0_${now}`,
+        chunk_text: `[HTML: ${base}]`,
+        vector: vectors[0],
+        source_path: base,
+        chunk_index: 0,
+        total_chunks: 1,
+        images: "[]",
+        file_type: "html",
+        file_hash: fileHash,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  const vectors = await embedder.embed(chunks);
+
+  return chunks.map((chunk_text, i) => ({
+    id: `${base}_${i}_${now}`,
+    chunk_text: chunk_text.substring(0, 2000),
+    vector: vectors[i],
+    source_path: base,
+    chunk_index: i,
+    total_chunks: chunks.length,
+    images: "[]",
+    file_type: "html",
+    file_hash: fileHash,
+    created_at: now,
+    updated_at: now,
+  }));
+}
+
+// ============================================================================
 // Text processing
 // ============================================================================
 
@@ -1176,7 +1237,7 @@ export class Ingester {
         }
 
         // Check if the embedding model supports this file type
-        const modality = (kind === "pdf" || kind === "doc" || kind === "docx" || kind === "xls" || kind === "xlsx" || kind === "ppt" || kind === "pptx") ? "text" : kind; // PDFs are text after MinerU extraction
+        const modality = (kind === "pdf" || kind === "doc" || kind === "docx" || kind === "xls" || kind === "xlsx" || kind === "ppt" || kind === "pptx" || kind === "html") ? "text" : kind; // PDFs are text after MinerU extraction
         const videoTextMode = kind === "video" && this.videoConfig.apiKey && this.videoMethod === "text"; // Text-mode video: VLM summary → text
         const videoMMMode = kind === "video" && this.videoMethod === "multimodal"; // Multimodal video: direct frame embedding
         const imageTextMode = kind === "image" && this.imageConfig.apiKey && this.imageMethod === "text"; // Text-mode image: VLM summary → text
@@ -1281,6 +1342,14 @@ export class Ingester {
               break;
             case "doc":
               entries = await processDoc(
+                filePath,
+                this.embedder,
+                this.config.chunking,
+                this.config.pdfParser!,
+              );
+              break;
+            case "html":
+              entries = await processHtml(
                 filePath,
                 this.embedder,
                 this.config.chunking,
