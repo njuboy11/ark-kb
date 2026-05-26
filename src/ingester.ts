@@ -31,7 +31,7 @@ const SUPPORTED_TEXT_EXTS = new Set([
 const SUPPORTED_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".jfif", ".webp", ".gif", ".bmp", ".svg", ".tiff", ".tif", ".ico", ".heic", ".heif", ".raw", ".cr2", ".nef", ".arw"]);
 const SUPPORTED_VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".3gp", ".ogv", ".ts"]);
 
-export type FileKind = "text" | "image" | "video" | "pdf" | "doc" | "docx" | "unsupported";
+export type FileKind = "text" | "image" | "video" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "unsupported";
 
 export function detectFileKind(filePath: string): FileKind {
   const ext = extname(filePath).toLowerCase();
@@ -41,6 +41,8 @@ export function detectFileKind(filePath: string): FileKind {
   if (ext === ".pdf") return "pdf";
   if (ext === ".doc") return "doc";
   if (ext === ".docx") return "docx";
+  if (ext === ".xls") return "xls";
+  if (ext === ".xlsx") return "xlsx";
   return "unsupported";
 }
 
@@ -399,6 +401,68 @@ function isDocxComplex(filePath: string): boolean {
 // Docx processing
 // ============================================================================
 
+// ============================================================================
+// Xlsx complexity auto-detection
+// ============================================================================
+
+/** Extract a specific sheet XML from xlsx ZIP */
+function extractSheetXml(filePath: string, sheetName: string): string | null {
+  try {
+    return execSync(
+      `unzip -p "${filePath}" xl/worksheets/${sheetName}.xml 2>/dev/null`,
+      { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 50 * 1024 * 1024 },
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Check if an .xlsx file is complex (has formulas, charts, images, pivot tables, multi-sheet, etc.)
+ *  by reading its internal XML structure and ZIP directory. Returns true if ANY complexity marker is found. */
+function isXlsxComplex(filePath: string): boolean {
+  try {
+    // 1. Formula cells: <f> or <f ...> tags in sheet XML
+    const sheet1Xml = extractSheetXml(filePath, "sheet1") ?? extractSheetXml(filePath, "sheet");
+    if (sheet1Xml && /<f[\s>]/.test(sheet1Xml)) return true;
+
+    // 2-5. Special directories: charts, drawings, pivot tables, pivot caches
+    const fileList = execSync(
+      `unzip -l "${filePath}"`,
+      { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1 * 1024 * 1024 },
+    );
+    if (/xl\/charts\//.test(fileList)) return true;
+    if (/xl\/drawings\//.test(fileList)) return true;
+    if (/xl\/pivotTables\//.test(fileList)) return true;
+    if (/xl\/pivotCache\//.test(fileList)) return true;
+
+    // 6. Multiple sheets
+    try {
+      const workbookXml = execSync(
+        `unzip -p "${filePath}" xl/workbook.xml`,
+        { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1 * 1024 * 1024 },
+      );
+      const sheetCount = (workbookXml.match(/<sheet\s/g) || []).length;
+      if (sheetCount > 1) return true;
+    } catch {
+      // No workbook.xml — just continue checking other markers
+    }
+
+    // 7-9. Conditional formatting, data validation in sheet
+    if (sheet1Xml) {
+      if (sheet1Xml.includes("<conditionalFormatting")) return true;
+      if (sheet1Xml.includes("<dataValidation")) return true;
+      // 10. Large dataset (>500 rows)
+      const rowCount = (sheet1Xml.match(/<row\s/g) || []).length;
+      if (rowCount > 500) return true;
+    }
+
+    return false;
+  } catch {
+    // Fail-safe: can't read XML → assume complex → vlm
+    return true;
+  }
+}
+
 const SUPPORTED_DOC_EXTS = new Set([".doc", ".docx"]);
 
 async function processDocx(
@@ -500,6 +564,115 @@ async function processDoc(
     total_chunks: chunks.length,
     images: "[]",
     file_type: "doc",
+    file_hash: fileHash,
+    created_at: now,
+    updated_at: now,
+  }));
+}
+
+// ============================================================================
+// Xlsx processing
+// ============================================================================
+
+async function processXlsx(
+  filePath: string,
+  embedder: Embedder,
+  chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
+  pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
+): Promise<KBEntry[]> {
+  const base = basename(filePath);
+  const fileHash = await hashFile(filePath);
+
+  // Auto-detect complexity from XML
+  const complex = isXlsxComplex(filePath);
+  const modelVersion = complex ? "vlm" : "pipeline";
+  console.log(`[Ark KB] Xlsx complexity: ${complex ? "complex→vlm" : "simple→pipeline"} (${base})`);
+
+  const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion });
+  const chunks = chunkText(text, chunkConfig);
+  const now = Date.now();
+
+  if (chunks.length === 0) {
+    const vectors = await embedder.embed(`[XLSX:${base}]`);
+    return [
+      {
+        id: `${base}_0_${now}`,
+        chunk_text: `[XLSX: ${base}]`,
+        vector: vectors[0],
+        source_path: base,
+        chunk_index: 0,
+        total_chunks: 1,
+        images: "[]",
+        file_type: "xlsx",
+        file_hash: fileHash,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  const vectors = await embedder.embed(chunks);
+
+  return chunks.map((chunk_text, i) => ({
+    id: `${base}_${i}_${now}`,
+    chunk_text: chunk_text.substring(0, 2000),
+    vector: vectors[i],
+    source_path: base,
+    chunk_index: i,
+    total_chunks: chunks.length,
+    images: "[]",
+    file_type: "xlsx",
+    file_hash: fileHash,
+    created_at: now,
+    updated_at: now,
+  }));
+}
+
+async function processXls(
+  filePath: string,
+  embedder: Embedder,
+  chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
+  pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
+): Promise<KBEntry[]> {
+  const base = basename(filePath);
+  const fileHash = await hashFile(filePath);
+
+  // .xls is binary — always use vlm (same as .doc)
+  console.log(`[Ark KB] Xls file: always→vlm (${base})`);
+  const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion: "vlm" });
+  const chunks = chunkText(text, chunkConfig);
+  const now = Date.now();
+
+  if (chunks.length === 0) {
+    const vectors = await embedder.embed(`[XLS:${base}]`);
+    return [
+      {
+        id: `${base}_0_${now}`,
+        chunk_text: `[XLS: ${base}]`,
+        vector: vectors[0],
+        source_path: base,
+        chunk_index: 0,
+        total_chunks: 1,
+        images: "[]",
+        file_type: "xls",
+        file_hash: fileHash,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  const vectors = await embedder.embed(chunks);
+
+  return chunks.map((chunk_text, i) => ({
+    id: `${base}_${i}_${now}`,
+    chunk_text: chunk_text.substring(0, 2000),
+    vector: vectors[i],
+    source_path: base,
+    chunk_index: i,
+    total_chunks: chunks.length,
+    images: "[]",
+    file_type: "xls",
     file_hash: fileHash,
     created_at: now,
     updated_at: now,
@@ -829,7 +1002,7 @@ export class Ingester {
         }
 
         // Check if the embedding model supports this file type
-        const modality = (kind === "pdf" || kind === "doc" || kind === "docx") ? "text" : kind; // PDFs are text after MinerU extraction
+        const modality = (kind === "pdf" || kind === "doc" || kind === "docx" || kind === "xls" || kind === "xlsx") ? "text" : kind; // PDFs are text after MinerU extraction
         const videoTextMode = kind === "video" && this.videoConfig.apiKey && this.videoMethod === "text"; // Text-mode video: VLM summary → text
         const videoMMMode = kind === "video" && this.videoMethod === "multimodal"; // Multimodal video: direct frame embedding
         const imageTextMode = kind === "image" && this.imageConfig.apiKey && this.imageMethod === "text"; // Text-mode image: VLM summary → text
@@ -894,6 +1067,22 @@ export class Ingester {
               break;
             case "docx":
               entries = await processDocx(
+                filePath,
+                this.embedder,
+                this.config.chunking,
+                this.config.pdfParser!,
+              );
+              break;
+            case "xlsx":
+              entries = await processXlsx(
+                filePath,
+                this.embedder,
+                this.config.chunking,
+                this.config.pdfParser!,
+              );
+              break;
+            case "xls":
+              entries = await processXls(
                 filePath,
                 this.embedder,
                 this.config.chunking,
