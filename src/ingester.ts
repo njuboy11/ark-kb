@@ -31,7 +31,7 @@ const SUPPORTED_TEXT_EXTS = new Set([
 const SUPPORTED_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".jfif", ".webp", ".gif", ".bmp", ".svg", ".tiff", ".tif", ".ico", ".heic", ".heif", ".raw", ".cr2", ".nef", ".arw"]);
 const SUPPORTED_VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".3gp", ".ogv", ".ts"]);
 
-export type FileKind = "text" | "image" | "video" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "unsupported";
+export type FileKind = "text" | "image" | "video" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "unsupported";
 
 export function detectFileKind(filePath: string): FileKind {
   const ext = extname(filePath).toLowerCase();
@@ -43,6 +43,8 @@ export function detectFileKind(filePath: string): FileKind {
   if (ext === ".docx") return "docx";
   if (ext === ".xls") return "xls";
   if (ext === ".xlsx") return "xlsx";
+  if (ext === ".ppt") return "ppt";
+  if (ext === ".pptx") return "pptx";
   return "unsupported";
 }
 
@@ -463,6 +465,69 @@ function isXlsxComplex(filePath: string): boolean {
   }
 }
 
+// ============================================================================
+// Pptx complexity auto-detection
+// ============================================================================
+
+/** Check if a .pptx file is complex (has charts, media, diagrams, animations, embedded objects, etc.)
+ *  by reading its internal ZIP structure. Returns true if ANY complexity marker is found. */
+function isPptxComplex(filePath: string): boolean {
+  try {
+    // Get full ZIP file listing
+    const fileList = execSync(
+      `unzip -l "${filePath}"`,
+      { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 2 * 1024 * 1024 },
+    );
+
+    // 1. Charts
+    if (/ppt\/charts\//.test(fileList)) return true;
+
+    // 2. Lots of media (>5 files in ppt/media/)
+    const mediaCount = (fileList.match(/ppt\/media\//g) || []).length;
+    if (mediaCount > 5) return true;
+
+    // 3. SmartArt / diagrams
+    if (/ppt\/diagrams\//.test(fileList)) return true;
+
+    // 4. OLE embedded objects
+    if (/ppt\/embeddings\//.test(fileList)) return true;
+
+    // 9. Speaker notes (notesSlides with actual content)
+    if (/ppt\/notesSlides\//.test(fileList)) return true;
+
+    // 9. Slide count > 20
+    const slideCount = (fileList.match(/ppt\/slides\/slide\d+\.xml/g) || []).length;
+    if (slideCount > 20) return true;
+
+    // Read first slide XML for per-slide markers
+    try {
+      const slide1Xml = execSync(
+        `unzip -p "${filePath}" ppt/slides/slide1.xml`,
+        { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 10 * 1024 * 1024 },
+      );
+
+      // 5. OLE objects in slide content
+      if (/<p:oleObj/.test(slide1Xml)) return true;
+
+      // 6. Embedded tables
+      if (/<a:tbl[\s>]/.test(slide1Xml)) return true;
+
+      // 7. Animations/transitions
+      if (/<p:anim/.test(slide1Xml)) return true;
+
+      // 8. Embedded video or audio
+      if (/<p:video|audioFile/.test(slide1Xml)) return true;
+    } catch {
+      // No slide1.xml — that's fine, continue
+    }
+
+    return false;
+  } catch {
+    // Fail-safe: can't read ZIP → assume complex → vlm
+    return true;
+  }
+}
+
 const SUPPORTED_DOC_EXTS = new Set([".doc", ".docx"]);
 
 async function processDocx(
@@ -673,6 +738,115 @@ async function processXls(
     total_chunks: chunks.length,
     images: "[]",
     file_type: "xls",
+    file_hash: fileHash,
+    created_at: now,
+    updated_at: now,
+  }));
+}
+
+// ============================================================================
+// Pptx processing
+// ============================================================================
+
+async function processPptx(
+  filePath: string,
+  embedder: Embedder,
+  chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
+  pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
+): Promise<KBEntry[]> {
+  const base = basename(filePath);
+  const fileHash = await hashFile(filePath);
+
+  // Auto-detect complexity from ZIP structure
+  const complex = isPptxComplex(filePath);
+  const modelVersion = complex ? "vlm" : "pipeline";
+  console.log(`[Ark KB] Pptx complexity: ${complex ? "complex→vlm" : "simple→pipeline"} (${base})`);
+
+  const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion });
+  const chunks = chunkText(text, chunkConfig);
+  const now = Date.now();
+
+  if (chunks.length === 0) {
+    const vectors = await embedder.embed(`[PPTX:${base}]`);
+    return [
+      {
+        id: `${base}_0_${now}`,
+        chunk_text: `[PPTX: ${base}]`,
+        vector: vectors[0],
+        source_path: base,
+        chunk_index: 0,
+        total_chunks: 1,
+        images: "[]",
+        file_type: "pptx",
+        file_hash: fileHash,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  const vectors = await embedder.embed(chunks);
+
+  return chunks.map((chunk_text, i) => ({
+    id: `${base}_${i}_${now}`,
+    chunk_text: chunk_text.substring(0, 2000),
+    vector: vectors[i],
+    source_path: base,
+    chunk_index: i,
+    total_chunks: chunks.length,
+    images: "[]",
+    file_type: "pptx",
+    file_hash: fileHash,
+    created_at: now,
+    updated_at: now,
+  }));
+}
+
+async function processPpt(
+  filePath: string,
+  embedder: Embedder,
+  chunkConfig: { maxTokens: number; overlapTokens: number; strategy: string },
+  pdfConfig: NonNullable<IngesterConfig["pdfParser"]>,
+): Promise<KBEntry[]> {
+  const base = basename(filePath);
+  const fileHash = await hashFile(filePath);
+
+  // .ppt is binary — always use vlm (same as .doc / .xls)
+  console.log(`[Ark KB] Ppt file: always→vlm (${base})`);
+  const text = await extractPdfMinerU(filePath, pdfConfig, { modelVersion: "vlm" });
+  const chunks = chunkText(text, chunkConfig);
+  const now = Date.now();
+
+  if (chunks.length === 0) {
+    const vectors = await embedder.embed(`[PPT:${base}]`);
+    return [
+      {
+        id: `${base}_0_${now}`,
+        chunk_text: `[PPT: ${base}]`,
+        vector: vectors[0],
+        source_path: base,
+        chunk_index: 0,
+        total_chunks: 1,
+        images: "[]",
+        file_type: "ppt",
+        file_hash: fileHash,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  const vectors = await embedder.embed(chunks);
+
+  return chunks.map((chunk_text, i) => ({
+    id: `${base}_${i}_${now}`,
+    chunk_text: chunk_text.substring(0, 2000),
+    vector: vectors[i],
+    source_path: base,
+    chunk_index: i,
+    total_chunks: chunks.length,
+    images: "[]",
+    file_type: "ppt",
     file_hash: fileHash,
     created_at: now,
     updated_at: now,
@@ -1002,7 +1176,7 @@ export class Ingester {
         }
 
         // Check if the embedding model supports this file type
-        const modality = (kind === "pdf" || kind === "doc" || kind === "docx" || kind === "xls" || kind === "xlsx") ? "text" : kind; // PDFs are text after MinerU extraction
+        const modality = (kind === "pdf" || kind === "doc" || kind === "docx" || kind === "xls" || kind === "xlsx" || kind === "ppt" || kind === "pptx") ? "text" : kind; // PDFs are text after MinerU extraction
         const videoTextMode = kind === "video" && this.videoConfig.apiKey && this.videoMethod === "text"; // Text-mode video: VLM summary → text
         const videoMMMode = kind === "video" && this.videoMethod === "multimodal"; // Multimodal video: direct frame embedding
         const imageTextMode = kind === "image" && this.imageConfig.apiKey && this.imageMethod === "text"; // Text-mode image: VLM summary → text
@@ -1083,6 +1257,22 @@ export class Ingester {
               break;
             case "xls":
               entries = await processXls(
+                filePath,
+                this.embedder,
+                this.config.chunking,
+                this.config.pdfParser!,
+              );
+              break;
+            case "pptx":
+              entries = await processPptx(
+                filePath,
+                this.embedder,
+                this.config.chunking,
+                this.config.pdfParser!,
+              );
+              break;
+            case "ppt":
+              entries = await processPpt(
                 filePath,
                 this.embedder,
                 this.config.chunking,
