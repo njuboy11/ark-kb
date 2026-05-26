@@ -11,6 +11,7 @@ export interface SearchOptions {
     rerankerEnabled?: boolean;
     rerankerMinScore?: number;
     resultCount?: number;
+    fileType?: string;
 }
 export interface SearchResult {
     score: number;

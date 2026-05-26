@@ -5,6 +5,19 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { exposeMediaFile } from "./embedder.js";
+/** Safely parse images field (already array or JSON string). */
+function safeParseImages(val) {
+    if (Array.isArray(val))
+        return val;
+    if (typeof val !== "string" || !val)
+        return [];
+    try {
+        return JSON.parse(val);
+    }
+    catch {
+        return [];
+    }
+}
 const RERANKER_PRESETS = {
     siliconflow: {
         "BAAI/bge-reranker-v2-m3": {
@@ -75,7 +88,7 @@ export class Searcher {
         const [queryVector] = await this.embedder.embed(options.query);
         // 2. Run vector ANN search and BM25 search in parallel
         const [vecResults, bm25Results] = await Promise.all([
-            this.store.search(queryVector, topK),
+            this.store.search(queryVector, topK, options.fileType),
             this.store.searchBM25(options.query, topK),
         ]);
         // 3. Normalize scores for each arm (min-max to [0,1])
@@ -139,7 +152,7 @@ export class Searcher {
             source_path: r.entry.source_path,
             chunk_index: r.entry.chunk_index,
             total_chunks: r.entry.total_chunks,
-            images: JSON.parse(r.entry.images || "[]"),
+            images: safeParseImages(r.entry.images),
             file_type: r.entry.file_type,
         }));
     }

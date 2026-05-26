@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
+import { hashFile } from "./ingester.js";
 // ============================================================================
 // EmailIngester
 // ============================================================================
@@ -173,13 +174,16 @@ export class EmailIngester {
                         // Skip emails without attachments (no-op, don't bump timestamp)
                         if (email.attachments.length === 0)
                             continue;
+                        // Always advance UID past this email — whether it succeeds or fails.
+                        // Failed emails go into the retry list and are re-fetched by UID separately;
+                        // we must not stall the UID cursor on a permanently-failing email.
+                        if (email.uid > maxProcessedUID) {
+                            maxProcessedUID = email.uid;
+                        }
                         try {
                             await this._processEmail(email);
-                            // Success — remove from failed list, track processed time
+                            // Success — remove from failed list
                             this.state.failed = this.state.failed.filter(f => f.uid !== email.uid);
-                            if (email.uid > maxProcessedUID) {
-                                maxProcessedUID = email.uid;
-                            }
                             if (email.internalDate > maxProcessedInternalDate) {
                                 maxProcessedInternalDate = email.internalDate;
                             }
@@ -188,7 +192,6 @@ export class EmailIngester {
                         catch (err) {
                             console.error(`[EmailIngester] Failed to process UID ${email.uid}:`, err.message);
                             this._recordFailure(email.uid, email.messageId, err.message, email.internalDate);
-                            // DO NOT advance timestamp — failed emails will be retried next scan
                         }
                     }
                     // Advance UID cursor past the latest processed email
@@ -214,7 +217,7 @@ export class EmailIngester {
             catch (err) {
                 console.error("[EmailIngester] Scan error:", err.message);
                 // Connection may be dead — reset to trigger reconnect next scan
-                if (err.message?.includes("connect") || err.message?.includes("ETIMEDOUT") || err.message?.includes("ECONN")) {
+                if (err.message?.includes("connect") || err.message?.includes("ETIMEDOUT") || err.message?.includes("ECONN") || err.message?.includes("Connection not available")) {
                     this.imapClient = null;
                     console.log("[EmailIngester] IMAP connection reset — will reconnect on next scan");
                 }
@@ -269,42 +272,56 @@ export class EmailIngester {
                 }
             }
         }
-        // Ingest each attachment into each matched KB
-        const firstKbPath = targetKBs.length > 0 ? path.join(this.knowledgePath, targetKBs[0]) : "";
-        for (const kbName of targetKBs) {
-            const kbPath = path.join(this.knowledgePath, kbName);
-            fs.mkdirSync(kbPath, { recursive: true });
-            const kbIdx = targetKBs.indexOf(kbName);
-            for (const filePath of downloadedPaths) {
-                const destPath = path.join(kbPath, path.basename(filePath));
-                // First KB: copy from temp file. Subsequent KBs: copy from first KB's dest
-                const firstKbDestPath = kbIdx > 0 ? path.join(firstKbPath, path.basename(filePath)) : filePath;
-                const srcPath = kbIdx === 0 ? filePath : firstKbDestPath;
-                if (!fs.existsSync(destPath)) {
-                    try {
-                        fs.copyFileSync(srcPath, destPath);
-                    }
-                    catch (e) {
-                        console.error(`[EmailIngester] Failed to copy ${path.basename(filePath)} to KB ${kbName}:`, e.message);
-                        this._recordFailure(email.uid, email.messageId, `Copy failed: ${e.message}`, email.internalDate);
-                        continue;
-                    }
+        // Ingest each attachment into each matched KB.
+        // Strategy: compute hash in temp → check LanceDB → skip if duplicate →
+        // otherwise let ingestByPath handle copy + rename-on-conflict.
+        for (const filePath of downloadedPaths) {
+            const destName = path.basename(filePath);
+            // Step 1: Compute hash BEFORE touching the KB directory
+            let fileHash;
+            try {
+                fileHash = await hashFile(filePath);
+            }
+            catch (e) {
+                this._recordFailure(email.uid, email.messageId, `hash failed: ${e.message}`, email.internalDate);
+                try {
+                    fs.unlinkSync(filePath);
                 }
+                catch { }
+                continue;
+            }
+            // Step 2: Check LanceDB — same hash = same content = already indexed
+            // Check against the FIRST KB only; multi-KB dedup is handled per-KB below
+            const firstKb = targetKBs[0];
+            const firstStore = firstKb ? this.kbManager.getKB(firstKb) : undefined;
+            if (firstStore && await firstStore.hasFileHash(fileHash)) {
+                console.log(`[EmailIngester] Skipping ${destName} — already indexed (hash match)`);
+                try {
+                    fs.unlinkSync(filePath);
+                }
+                catch { }
+                continue;
+            }
+            // Step 3: Copy + ingest into each target KB.
+            // ingestByPath handles: same-file skip, hash-dedup, rename-on-name-conflict.
+            let ingestedAny = false;
+            for (const kbName of targetKBs) {
+                const kbPath = path.join(this.knowledgePath, kbName);
+                fs.mkdirSync(kbPath, { recursive: true });
                 let retries = 0;
                 while (retries < this.config.maxRetries) {
                     try {
-                        await this.kbManager.ingestByPath(destPath);
-                        this.state.totalProcessed++;
+                        const result = await this.kbManager.ingestByPath(filePath, kbName);
+                        if (result.entries > 0) {
+                            this.state.totalProcessed++;
+                            ingestedAny = true;
+                        }
                         break;
                     }
                     catch (err) {
                         retries++;
                         if (retries >= this.config.maxRetries) {
-                            this._recordFailure(email.uid, email.messageId, `Failed to ingest ${path.basename(destPath)}: ${err.message}`, email.internalDate);
-                            try {
-                                fs.unlinkSync(filePath);
-                            }
-                            catch { }
+                            this._recordFailure(email.uid, email.messageId, `Failed to ingest ${destName}: ${err.message}`, email.internalDate);
                         }
                         else {
                             await this._sleep(1000 * retries);
@@ -312,6 +329,11 @@ export class EmailIngester {
                     }
                 }
             }
+            // Clean up temp file after all KBs processed
+            try {
+                fs.unlinkSync(filePath);
+            }
+            catch { }
         }
         // Clean up temp files AFTER all KBs have been processed
         for (const filePath of downloadedPaths) {
@@ -388,7 +410,7 @@ export class EmailIngester {
     }
     async _routeAttachment(att, kbNames, kbList) {
         const ext = path.extname(att.filename).toLowerCase();
-        const textExts = [".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"];
+        const textExts = [".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp"];
         const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"];
         const videoExts = [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"];
         if (textExts.includes(ext)) {
@@ -561,13 +583,15 @@ export class EmailIngester {
                 const { simpleParser } = await import("mailparser");
                 const parsed = await simpleParser(msg.source);
                 for (const att of parsed.attachments || []) {
-                    // Skip inline images (email signatures, embeds) — only real attachments
-                    const disposition = att.contentDisposition ?? "attachment";
+                    // Skip inline images (email signatures, embeds) — only real attachments.
+                    // Default to "inline" when no explicit Content-Disposition; many email clients
+                    // (Outlook, Apple Mail) omit the header for embedded signature images.
+                    const disposition = att.contentDisposition ?? "inline";
                     if (disposition === "inline")
                         continue;
                     const filename = att.filename ?? `attachment_${attachments.length}`;
                     const mimeType = att.contentType ?? "application/octet-stream";
-                    const data = att.content instanceof Buffer ? att.content : Buffer.from(att.content || "");
+                    const data = att.content instanceof Buffer ? att.content : Buffer.from(String(att.content || ""));
                     if (data.length > 0) {
                         attachments.push({ filename, mimeType, data });
                     }

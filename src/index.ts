@@ -826,6 +826,7 @@ export function register(api: {
     id: "ark-kb",
     async shutdown() {
       await ark.shutdown();
+      (globalThis as any).__ark_kb_registered = false;
     },
   });
 }

@@ -136,14 +136,17 @@ export class KnowledgeStore {
      * Vector ANN search.
      * Returns results sorted by distance score.
      */
-    async search(queryVector, topK) {
+    async search(queryVector, topK, fileType) {
         if (!this.table) {
             throw new Error("[Ark KB] Store not initialized — call init() first");
         }
-        const allResults = await this.table
+        let query = this.table
             .search(queryVector, { columns: ["vector"] })
-            .limit(topK * 3) // over-fetch for hybrid merge
-            .execute();
+            .limit(topK * 3); // over-fetch for hybrid merge;
+        if (fileType) {
+            query = query.filter(`file_type = '${fileType}'`);
+        }
+        const allResults = await query.execute();
         const rows = await collectRows(allResults);
         return rows.map((r) => ({
             entry: {
@@ -248,6 +251,84 @@ export class KnowledgeStore {
             .execute();
         const rows = await collectRows(results);
         return rows.length > 0;
+    }
+    /**
+     * Compact this KB: merge fragments + prune old versions.
+     * Returns statistics about what was cleaned up.
+     */
+    async compact(options) {
+        const cleanupMs = Date.now() - options.cleanupDays * 86_400_000;
+        const cleanupOlderThan = new Date(cleanupMs);
+        const startFragments = await this._countFragments();
+        const startTime = Date.now();
+        // Dry-run: return estimated stats without actually optimizing
+        if (options.dryRun) {
+            return {
+                kbName: this.tableName,
+                durationMs: Date.now() - startTime,
+                compaction: (options.op === "all" || options.op === "compact")
+                    ? { fragmentsBefore: startFragments, fragmentsAfter: startFragments, fragmentsRemoved: 0, bytesFreed: 0 }
+                    : undefined,
+                prune: (options.op === "all" || options.op === "prune")
+                    ? { oldVersionsRemoved: 0, bytesRemoved: 0 }
+                    : undefined,
+                index: (options.op === "all" || options.op === "index")
+                    ? { fragmentsRemapped: 0 }
+                    : undefined,
+            };
+        }
+        // Build optimize options based on op
+        const compactOpts = {};
+        if (options.op === "all" || options.op === "compact") {
+            compactOpts.compact = {}; // triggers fragment compaction
+        }
+        if (options.op === "all" || options.op === "prune") {
+            compactOpts.prune = {
+                olderThan: cleanupOlderThan,
+                deleteUnverified: options.aggressive,
+            };
+        }
+        if (options.op === "all" || options.op === "index") {
+            compactOpts.index = {}; // triggers vector index remapping
+        }
+        const result = await this.table.optimize(compactOpts);
+        const endFragments = await this._countFragments();
+        return {
+            kbName: this.tableName,
+            durationMs: Date.now() - startTime,
+            compaction: result.compaction
+                ? {
+                    fragmentsBefore: startFragments,
+                    fragmentsAfter: endFragments,
+                    fragmentsRemoved: result.compaction.fragmentsRemoved ?? 0,
+                    bytesFreed: 0, // LanceDB doesn't expose per-file sizes
+                }
+                : undefined,
+            prune: result.prune
+                ? {
+                    oldVersionsRemoved: result.prune.oldVersionsRemoved ?? 0,
+                    bytesRemoved: result.prune.bytesRemoved ?? 0,
+                }
+                : undefined,
+            index: result.index
+                ? { fragmentsRemapped: result.index.fragmentsRemapped ?? 0 }
+                : undefined,
+        };
+    }
+    async _countFragments() {
+        try {
+            const arrow = await this.table.query().select(["vector"]).toArrow();
+            // LanceDB doesn't expose fragment count directly in JS SDK,
+            // so we estimate from the data directory
+            const dataDir = path.join(this.config.dbPath, `${this.tableName}.lance`, "data");
+            if (fs.existsSync(dataDir)) {
+                return fs.readdirSync(dataDir).filter(f => f.endsWith(".lance")).length;
+            }
+            return 0;
+        }
+        catch {
+            return 0;
+        }
     }
     /**
      * Close the database connection.

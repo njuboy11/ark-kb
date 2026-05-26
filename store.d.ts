@@ -3,6 +3,26 @@
  * LanceDB-backed vector store with FTS (BM25) support.
  * NO in-memory fallback — LanceDB failure throws.
  */
+/**
+ * Statistics from a compact operation.
+ */
+export interface CompactionStats {
+    kbName: string;
+    durationMs: number;
+    compaction?: {
+        fragmentsBefore: number;
+        fragmentsAfter: number;
+        fragmentsRemoved: number;
+        bytesFreed: number;
+    };
+    prune?: {
+        oldVersionsRemoved: number;
+        bytesRemoved: number;
+    };
+    index?: {
+        fragmentsRemapped: number;
+    };
+}
 export interface KBEntry {
     id: string;
     chunk_text: string;
@@ -57,7 +77,7 @@ export declare class KnowledgeStore {
      * Vector ANN search.
      * Returns results sorted by distance score.
      */
-    search(queryVector: number[], topK: number): Promise<KBSearchResult[]>;
+    search(queryVector: number[], topK: number, fileType?: string): Promise<KBSearchResult[]>;
     /**
      * BM25-style full-text search using LanceDB FTS.
      * Falls back to vector-only search if FTS is not available.
@@ -81,6 +101,17 @@ export declare class KnowledgeStore {
      * Returns true if the hash is found in any entry, false otherwise.
      */
     hasFileHash(hash: string): Promise<boolean>;
+    /**
+     * Compact this KB: merge fragments + prune old versions.
+     * Returns statistics about what was cleaned up.
+     */
+    compact(options: {
+        cleanupDays: number;
+        aggressive: boolean;
+        op: "all" | "compact" | "prune" | "index";
+        dryRun?: boolean;
+    }): Promise<CompactionStats>;
+    private _countFragments;
     /**
      * Close the database connection.
      */

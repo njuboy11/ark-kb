@@ -69,6 +69,13 @@ export interface ArkKBConfig {
         endpoint?: string;
         apiKey?: string;
     };
+    /** Auto-compact configuration */
+    compact?: {
+        /** Days of data to keep uncompacted (compact only data older than this). Default 1. */
+        retentionDays?: number;
+        /** How often to run compact, in days. Default 1. */
+        intervalDays?: number;
+    };
     /** Email auto-ingestion config */
     emailIngester?: {
         enabled?: boolean;
@@ -156,6 +163,10 @@ export interface ResolvedConfig {
         password: string;
         scanIntervalMs: number;
         maxRetries: number;
+    };
+    compact: {
+        retentionDays: number;
+        intervalDays: number;
     };
 }
 export declare const DEFAULTS: Omit<ResolvedConfig, "knowledgePath">;

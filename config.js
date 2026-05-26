@@ -11,7 +11,7 @@ export const DEFAULTS = {
         api: "siliconflow",
         endpoint: "https://api.siliconflow.cn/v1/embeddings",
         apiKey: "",
-        model: "Qwen/Qwen3-VL-Embedding-8B",
+        model: "Qwen/Qwen3-Embedding-8B",
         dimensions: 4096,
         batchSize: 16,
         method: { image: "text", video: "text" },
@@ -69,6 +69,10 @@ export const DEFAULTS = {
         password: "",
         scanIntervalMs: 600000,
         maxRetries: 2,
+    },
+    compact: {
+        retentionDays: 1,
+        intervalDays: 1,
     },
 };
 // ============================================================================
@@ -244,6 +248,15 @@ export function validateConfig(raw) {
                 errors.push("emailIngester.password is required when emailIngester.enabled is true");
         }
     }
+    if (c.compact) {
+        const co = c.compact;
+        if (co.retentionDays !== undefined && (typeof co.retentionDays !== "number" || co.retentionDays < 1)) {
+            errors.push("compact.retentionDays must be a number >= 1");
+        }
+        if (co.intervalDays !== undefined && (typeof co.intervalDays !== "number" || co.intervalDays < 1)) {
+            errors.push("compact.intervalDays must be a number >= 1");
+        }
+    }
     // ── Cross-field validation ────────────────────────────────
     const e = c.embedding;
     const r = c.reranker;
@@ -408,6 +421,10 @@ export function resolveConfig(raw) {
             password: raw.emailIngester?.password ?? DEFAULTS.emailIngester.password,
             scanIntervalMs: raw.emailIngester?.scanIntervalMs ?? DEFAULTS.emailIngester.scanIntervalMs,
             maxRetries: raw.emailIngester?.maxRetries ?? DEFAULTS.emailIngester.maxRetries,
+        },
+        compact: {
+            retentionDays: raw.compact?.retentionDays ?? DEFAULTS.compact.retentionDays,
+            intervalDays: raw.compact?.intervalDays ?? DEFAULTS.compact.intervalDays,
         },
     };
 }

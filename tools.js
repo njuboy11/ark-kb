@@ -32,6 +32,12 @@ export function registerKBTools(ark) {
                         description: "Optional knowledge base name to search within. " +
                             "If omitted, searches across all knowledge bases.",
                     },
+                    fileType: {
+                        type: "string",
+                        description: "Filter by file extension. " +
+                            "E.g. 'xlsx' for Excel files, 'pdf' for PDFs, 'docx' for Word documents. " +
+                            "Use this when the user wants to limit results to a specific file type.",
+                    },
                 },
                 required: ["query"],
             },
@@ -41,6 +47,7 @@ export function registerKBTools(ark) {
                         resultCount: params.count,
                         rerankerEnabled: true,
                         kbName: params.kb,
+                        fileType: params.fileType,
                     });
                     if (results.length === 0) {
                         return {

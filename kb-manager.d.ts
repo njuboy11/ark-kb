@@ -3,9 +3,24 @@
  * Manages multiple knowledge bases as subfolders of knowledgePath.
  * Each KB = one LanceDB table (tableName = folder name).
  */
-import { KnowledgeStore } from "./store.js";
+import { ResolvedConfig } from "./config.js";
+import { KnowledgeStore, type CompactionStats } from "./store.js";
 import { Ingester } from "./ingester.js";
 export type { KBEntry, KBSearchResult, StoreOptions } from "./store.js";
+/** Options for compact operation. */
+export interface CompactOptions {
+    op: "all" | "compact" | "prune" | "index";
+    cleanupDays: number;
+    aggressive: boolean;
+    dryRun: boolean;
+}
+/** Result of compactAll. */
+export interface CompactionAllResult {
+    results: CompactionStats[];
+    totalBytesFreed: number;
+    totalFragmentsMerged: number;
+    totalDurationMs: number;
+}
 export interface KBInfo {
     name: string;
     path: string;
@@ -38,7 +53,9 @@ export interface MultiKBOptions {
     knowledgePath: string;
     dbPath: string;
     vectorDim: number;
-    /** Optional embedder config for ingestion (ingestByPath won't work without this) */
+    /** Full resolved config (preferred over individual sub-configs) */
+    fullConfig?: ResolvedConfig;
+    /** Optional embedder config for ingestion (fallback if fullConfig not provided) */
     embedderConfig?: {
         api?: string;
         endpoint?: string;
@@ -57,20 +74,20 @@ export interface MultiKBOptions {
             params?: Record<string, boolean>;
         };
     };
-    /** Video summarizer config (needed for video text mode) */
+    /** Video summarizer config (fallback) */
     videoConfig?: {
         endpoint: string;
         apiKey: string;
         maxFrames: number;
         timeoutMs?: number;
     };
-    /** Image summarizer config (needed for image text mode) */
+    /** Image summarizer config (fallback) */
     imageConfig?: {
         endpoint: string;
         apiKey: string;
         timeoutMs: number;
     };
-    /** Embedding method per modality */
+    /** Embedding method per modality (fallback) */
     embeddingMethod?: {
         image?: "text" | "multimodal";
         video?: "text" | "multimodal";
@@ -99,6 +116,7 @@ export declare class KBManager {
     private _videoConfig;
     private _imageConfig;
     private _embeddingMethod;
+    private fullConfig?;
     constructor(opts: MultiKBOptions);
     /**
      * Initialize: scan subfolders, auto-migrate root-level files to `default`,
@@ -143,8 +161,48 @@ export declare class KBManager {
      */
     getIngester(name: string): Ingester | undefined;
     /**
+     * Compact a single KB: merge fragments, prune old versions, remap index.
+     */
+    compact(kbName: string, options: CompactOptions): Promise<CompactionStats | null>;
+    /**
+     * Compact all knowledge bases.
+     */
+    compactAll(options: CompactOptions): Promise<CompactionAllResult>;
+    /**
+     * Heal a single KB: scan its directory and re-ingest changed/new files.
+     */
+    healKB(kbName: string): Promise<{
+        healed: number;
+        skipped: number;
+    }>;
+    /** Heal all KBs. */
+    healAll(): Promise<{
+        healed: number;
+        skipped: number;
+        byKB: Record<string, {
+            healed: number;
+            skipped: number;
+        }>;
+    }>;
+    /**
+     * Rebuild a KB: drop the LanceDB table, recreate it, re-ingest all files.
+     * Requires --confirm because it destroys existing data.
+     */
+    rebuildKB(kbName: string): Promise<{
+        healed: number;
+        skipped: number;
+        kbName: string;
+    }>;
+    /** Rebuild all KBs. */
+    rebuildAll(): Promise<Array<{
+        healed: number;
+        skipped: number;
+        kbName: string;
+    }>>;
+    /**
      * Re-ingest all files in a directory (heal/re-index).
      * Returns aggregate healed + skipped counts across all KBs.
+     * @deprecated Use healKB() or healAll() instead.
      */
     heal(knowledgePath: string): Promise<{
         healed: number;
@@ -169,7 +227,11 @@ export declare class KBManager {
      * Layer 2 — same name + different hash: rename with _1, _2 suffix (filesystem)
      * Layer 3 — different name + same hash: skip (DB hash check in ingester)
      */
-    ingestByPath(filePath: string): Promise<IngestResult>;
+    /**
+     * Ingest a file by path. Resolves the correct KB automatically unless
+     * kbName is provided (e.g. from EmailIngester which already knows the target).
+     */
+    ingestByPath(filePath: string, kbName?: string): Promise<IngestResult>;
     /**
      * Generate a unique filename by appending _1, _2, etc. if conflicts exist.
      */

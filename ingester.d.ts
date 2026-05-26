@@ -6,7 +6,7 @@
 import { KnowledgeStore } from "./store.js";
 import { Embedder } from "./embedder.js";
 import { IngesterConfig } from "./index.js";
-export type FileKind = "text" | "image" | "video" | "pdf" | "unsupported";
+export type FileKind = "text" | "image" | "video" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "html" | "unsupported";
 export declare function detectFileKind(filePath: string): FileKind;
 export declare function hashFile(filePath: string): Promise<string>;
 /**
@@ -38,6 +38,7 @@ export declare class Ingester {
     private knowledgePath;
     /** Per-file mutex: prevents TOCTOU races when the same file is ingested concurrently. */
     private _ingestLocks;
+    private _hashLocks;
     constructor(store: KnowledgeStore, embedder: Embedder, config: IngesterConfig, knowledgePath?: string, videoConfig?: {
         endpoint: string;
         apiKey: string;

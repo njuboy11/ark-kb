@@ -42,31 +42,36 @@ export class KBManager {
     _videoConfig;
     _imageConfig;
     _embeddingMethod;
+    fullConfig;
     constructor(opts) {
+        this.fullConfig = opts.fullConfig;
         this.knowledgePath = opts.knowledgePath;
         this.dbPath = opts.dbPath;
         this.vectorDim = opts.vectorDim;
+        // Derive sub-configs from fullConfig if available, else fallback to explicit opts
+        const ec = this.fullConfig?.embedding;
         this.embedderConfig = {
-            api: opts.embedderConfig?.api ?? "",
-            endpoint: opts.embedderConfig?.endpoint ?? "",
-            apiKey: opts.embedderConfig?.apiKey ?? "",
-            model: opts.embedderConfig?.model ?? "text-embedding-3-small",
-            chunking: opts.embedderConfig?.chunking ?? { maxTokens: 512, overlapTokens: 64, strategy: "paragraph" },
+            api: ec?.api ?? opts.embedderConfig?.api ?? "",
+            endpoint: ec?.endpoint ?? opts.embedderConfig?.endpoint ?? "",
+            apiKey: ec?.apiKey ?? opts.embedderConfig?.apiKey ?? "",
+            model: ec?.model ?? opts.embedderConfig?.model ?? "text-embedding-3-small",
+            chunking: this.fullConfig?.chunking ?? opts.embedderConfig?.chunking ?? { maxTokens: 512, overlapTokens: 64, strategy: "paragraph" },
+            pdfParser: this.fullConfig?.pdfParser ?? opts.embedderConfig?.pdfParser ?? { api: "none", endpoint: "", apiKey: "", model: "", params: {} },
         };
         this._videoConfig = {
-            endpoint: opts.videoConfig?.endpoint ?? "",
-            apiKey: opts.videoConfig?.apiKey ?? "",
-            maxFrames: opts.videoConfig?.maxFrames ?? 100,
+            endpoint: this.fullConfig?.videoSummarizer?.endpoint ?? opts.videoConfig?.endpoint ?? "",
+            apiKey: this.fullConfig?.videoSummarizer?.apiKey ?? opts.videoConfig?.apiKey ?? "",
+            maxFrames: this.fullConfig?.videoSummarizer?.maxFrames ?? opts.videoConfig?.maxFrames ?? 100,
             timeoutMs: opts.videoConfig?.timeoutMs ?? 120_000,
         };
         this._imageConfig = {
-            endpoint: opts.imageConfig?.endpoint ?? "",
-            apiKey: opts.imageConfig?.apiKey ?? "",
+            endpoint: this.fullConfig?.imageSummarizer?.endpoint ?? opts.imageConfig?.endpoint ?? "",
+            apiKey: this.fullConfig?.imageSummarizer?.apiKey ?? opts.imageConfig?.apiKey ?? "",
             timeoutMs: opts.imageConfig?.timeoutMs ?? 60_000,
         };
         this._embeddingMethod = {
-            image: opts.embeddingMethod?.image ?? "text",
-            video: opts.embeddingMethod?.video ?? "text",
+            image: this.fullConfig?.embedding?.method?.image ?? opts.embeddingMethod?.image ?? "text",
+            video: this.fullConfig?.embedding?.method?.video ?? opts.embeddingMethod?.video ?? "text",
         };
     }
     // -------------------------------------------------------------------------
@@ -224,8 +229,102 @@ export class KBManager {
         return this.ingesters.get(name);
     }
     /**
+     * Compact a single KB: merge fragments, prune old versions, remap index.
+     */
+    async compact(kbName, options) {
+        const store = this.kbs.get(kbName);
+        if (!store) {
+            console.warn(`[KBManager] compact: KB "${kbName}" not found`);
+            return null;
+        }
+        const stats = await store.compact({
+            cleanupDays: options.cleanupDays,
+            aggressive: options.aggressive,
+            op: options.op,
+            dryRun: options.dryRun,
+        });
+        return stats;
+    }
+    /**
+     * Compact all knowledge bases.
+     */
+    async compactAll(options) {
+        const results = [];
+        for (const name of this.kbs.keys()) {
+            const stats = await this.compact(name, options);
+            if (stats)
+                results.push(stats);
+        }
+        return {
+            results,
+            totalBytesFreed: results.reduce((s, r) => s +
+                (r.compaction?.bytesFreed ?? 0) +
+                (r.prune?.bytesRemoved ?? 0), 0),
+            totalFragmentsMerged: results.reduce((s, r) => s + (r.compaction?.fragmentsRemoved ?? 0), 0),
+            totalDurationMs: results.reduce((s, r) => s + r.durationMs, 0),
+        };
+    }
+    /**
+     * Heal a single KB: scan its directory and re-ingest changed/new files.
+     */
+    async healKB(kbName) {
+        const ingester = this.ingesters.get(kbName);
+        if (!ingester) {
+            console.warn(`[KBManager] heal: KB "${kbName}" not found`);
+            return { healed: 0, skipped: 0 };
+        }
+        const kbDir = path.join(this.knowledgePath, kbName);
+        if (!fs.existsSync(kbDir)) {
+            console.warn(`[KBManager] heal: directory not found: ${kbDir}`);
+            return { healed: 0, skipped: 0 };
+        }
+        return ingester.heal(kbDir);
+    }
+    /** Heal all KBs. */
+    async healAll() {
+        let totalHealed = 0;
+        let totalSkipped = 0;
+        const byKB = {};
+        for (const name of this.kbs.keys()) {
+            const r = await this.healKB(name);
+            byKB[name] = r;
+            totalHealed += r.healed;
+            totalSkipped += r.skipped;
+        }
+        return { healed: totalHealed, skipped: totalSkipped, byKB };
+    }
+    /**
+     * Rebuild a KB: drop the LanceDB table, recreate it, re-ingest all files.
+     * Requires --confirm because it destroys existing data.
+     */
+    async rebuildKB(kbName) {
+        const store = this.kbs.get(kbName);
+        const ingester = this.ingesters.get(kbName);
+        if (!store || !ingester) {
+            throw new Error(`KB "${kbName}" not found`);
+        }
+        // 1. Drop the LanceDB table
+        await store.drop();
+        // 2. Reinitialize the store (creates new table + FTS index)
+        await store.init();
+        // 3. Re-heal the directory
+        const kbDir = path.join(this.knowledgePath, kbName);
+        const result = await ingester.heal(kbDir);
+        return { healed: result.healed, skipped: result.skipped, kbName };
+    }
+    /** Rebuild all KBs. */
+    async rebuildAll() {
+        const results = [];
+        for (const name of this.kbs.keys()) {
+            const r = await this.rebuildKB(name);
+            results.push(r);
+        }
+        return results;
+    }
+    /**
      * Re-ingest all files in a directory (heal/re-index).
      * Returns aggregate healed + skipped counts across all KBs.
+     * @deprecated Use healKB() or healAll() instead.
      */
     async heal(knowledgePath) {
         let totalHealed = 0;
@@ -283,40 +382,52 @@ export class KBManager {
      * Layer 2 — same name + different hash: rename with _1, _2 suffix (filesystem)
      * Layer 3 — different name + same hash: skip (DB hash check in ingester)
      */
-    async ingestByPath(filePath) {
+    /**
+     * Ingest a file by path. Resolves the correct KB automatically unless
+     * kbName is provided (e.g. from EmailIngester which already knows the target).
+     */
+    async ingestByPath(filePath, kbName) {
         const resolved = path.resolve(filePath);
-        const kbName = this._resolveKBForPath(resolved);
-        const kbPath = path.join(this.knowledgePath, kbName);
+        const targetKB = kbName ?? this._resolveKBForPath(resolved);
+        const kbPath = path.join(this.knowledgePath, targetKB);
         // Layers 1 & 2: filesystem deduplication
         const destName = path.basename(resolved);
         const destPath = path.join(kbPath, destName);
         if (fs.existsSync(destPath)) {
-            // Compute both hashes to decide: skip or rename
-            const [newHash, oldHash] = await Promise.all([
-                hashFile(resolved),
-                hashFile(destPath),
-            ]);
-            if (newHash === oldHash) {
-                // Layer 1: same name + same hash → skip
-                console.log(`[MultiKB] Skipping duplicate (same name + hash): ${destName}`);
-                return { entries: 0, source: destName, skipped: true, kbName };
+            // If source and dest are the same file (e.g. emailIngester already copied),
+            // skip the self-comparison and go straight to ingest.
+            const sameFile = path.resolve(resolved) === path.resolve(destPath);
+            if (!sameFile) {
+                // Compute both hashes to decide: skip or rename
+                const [newHash, oldHash] = await Promise.all([
+                    hashFile(resolved),
+                    hashFile(destPath),
+                ]);
+                if (newHash === oldHash) {
+                    // Layer 1: same name + same hash → skip
+                    console.log(`[MultiKB] Skipping duplicate (same name + hash): ${destName}`);
+                    return { entries: 0, source: destName, skipped: true, kbName: targetKB };
+                }
+                // Layer 2: same name + different hash → rename
+                const uniqueName = this._getUniqueFilename(destName, kbPath);
+                const uniquePath = path.join(kbPath, uniqueName);
+                fs.copyFileSync(resolved, uniquePath);
+                console.log(`[MultiKB] Renamed to avoid conflict: ${destName} → ${uniqueName}`);
+                const result = await this.ingesters.get(targetKB).ingestFile(uniquePath);
+                return { ...result, kbName: targetKB };
             }
-            // Layer 2: same name + different hash → rename
-            const uniqueName = this._getUniqueFilename(destName, kbPath);
-            const uniquePath = path.join(kbPath, uniqueName);
-            fs.copyFileSync(resolved, uniquePath);
-            console.log(`[MultiKB] Renamed to avoid conflict: ${destName} → ${uniqueName}`);
-            const result = await this.ingesters.get(kbName).ingestFile(uniquePath);
-            return { ...result, kbName };
+            // sameFile: already in KB dir, no copy needed — fall through to ingest
         }
-        // No conflict — copy file to KB folder and ingest
-        fs.copyFileSync(resolved, destPath);
-        const ingester = this.ingesters.get(kbName);
+        else {
+            // No conflict — copy file to KB folder and ingest
+            fs.copyFileSync(resolved, destPath);
+        }
+        const ingester = this.ingesters.get(targetKB);
         if (!ingester) {
-            throw new Error(`[MultiKB] No ingester for KB "${kbName}" — is the KB initialized?`);
+            throw new Error(`[MultiKB] No ingester for KB "${targetKB}" — is the KB initialized?`);
         }
         const result = await ingester.ingestFile(destPath);
-        return { ...result, kbName };
+        return { ...result, kbName: targetKB };
     }
     /**
      * Generate a unique filename by appending _1, _2, etc. if conflicts exist.

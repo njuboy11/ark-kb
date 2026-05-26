@@ -22,6 +22,10 @@ export declare function registerKBTools(ark: ArkKB): ({
                 type: string;
                 description: string;
             };
+            fileType: {
+                type: string;
+                description: string;
+            };
             filePath?: undefined;
             sourcePath?: undefined;
             name?: undefined;
@@ -33,6 +37,7 @@ export declare function registerKBTools(ark: ArkKB): ({
         query: string;
         count?: number;
         kb?: string;
+        fileType?: string;
     }): Promise<{
         content: {
             type: "text";
@@ -69,6 +74,7 @@ export declare function registerKBTools(ark: ArkKB): ({
             query?: undefined;
             count?: undefined;
             kb?: undefined;
+            fileType?: undefined;
             sourcePath?: undefined;
             name?: undefined;
             confirm?: undefined;
@@ -99,6 +105,7 @@ export declare function registerKBTools(ark: ArkKB): ({
             };
             query?: undefined;
             count?: undefined;
+            fileType?: undefined;
             filePath?: undefined;
             name?: undefined;
             confirm?: undefined;
@@ -126,6 +133,7 @@ export declare function registerKBTools(ark: ArkKB): ({
             };
             query?: undefined;
             count?: undefined;
+            fileType?: undefined;
             filePath?: undefined;
             sourcePath?: undefined;
             name?: undefined;
@@ -154,6 +162,7 @@ export declare function registerKBTools(ark: ArkKB): ({
             query?: undefined;
             count?: undefined;
             kb?: undefined;
+            fileType?: undefined;
             filePath?: undefined;
             sourcePath?: undefined;
             confirm?: undefined;
@@ -185,6 +194,7 @@ export declare function registerKBTools(ark: ArkKB): ({
             query?: undefined;
             count?: undefined;
             kb?: undefined;
+            fileType?: undefined;
             filePath?: undefined;
             sourcePath?: undefined;
         };
@@ -208,6 +218,7 @@ export declare function registerKBTools(ark: ArkKB): ({
             query?: undefined;
             count?: undefined;
             kb?: undefined;
+            fileType?: undefined;
             filePath?: undefined;
             sourcePath?: undefined;
             name?: undefined;

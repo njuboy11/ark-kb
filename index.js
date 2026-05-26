@@ -727,6 +727,7 @@ export function register(api) {
         id: "ark-kb",
         async shutdown() {
             await ark.shutdown();
+            globalThis.__ark_kb_registered = false;
         },
     });
 }
