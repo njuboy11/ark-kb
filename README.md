@@ -1,155 +1,200 @@
 # 🏛️ Ark KB
 
-> **Ark Knowledge Base** — A personal knowledge base powered by LanceDB + Multimodal Embedding.
+> **Ark Knowledge Base** — Drop files in a folder. Everything else is automatic.
 
-**Drop your files in a folder. That's it.**
+A personal knowledge base for AI assistants. Powered by **LanceDB** + **MinerU** + **Multimodal Embedding**. Auto-detects file types, auto-parses, auto-chunks, auto-embeds, auto-indexes. 90+ file formats, 14-file codebase, ~7,000 lines.
 
 ---
 
-## 📖 Overview
-
-Ark KB is a knowledge base plugin built for AI assistants. The philosophy is dead simple:
-
-**You get one folder. You put stuff in it. Everything else is automatic.**
+## ✨ What It Does
 
 ```
-┌─────────────────────────────────────────┐
-│          Your Knowledge Folder           │
-│                                          │
-│  📄 product-manual.pdf  🖼️ arch.png     │
-│  📄 technical-design.md 🖼️ login-ui.png │
-│  📄 Q2-report.docx      🖼️ dashboard.png│
-│                                          │
-│         ↓ fs.watch (auto detect)          │
-│         ↓ auto parse (add / modify / del) │
-│         ↓ auto embed (Qwen3-VL-8B)        │
-│         ↓ auto index (LanceDB)            │
-│         ↓ auto sync                       │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│              Your Knowledge Folder                   │
+│                                                     │
+│  📄 report.pdf      📊 data.xlsx     📽️ deck.pptx   │
+│  📝 notes.md        🖼️ photo.jpg     🎬 demo.mp4    │
+│  📄 contract.docx   📧 email attachments             │
+│                                                     │
+│         ↓  fs.watch  (real-time)                     │
+│         ↓  detectFileKind  (90+ formats)             │
+│         ↓  complexity detection (Office XML)          │
+│         ↓  MinerU / VLM / direct extract             │
+│         ↓  chunkText  (paragraph / fixed / sentence) │
+│         ↓  embed  (vectorize)                        │
+│         ↓  upsert to LanceDB                         │
+└─────────────────────────────────────────────────────┘
 
-You say: "Find me that login UI screenshot"
+You ask: "What was the Q2 revenue forecast?"
    ↓
-I search: semantic match → image path → show it to you
+I search: semantic hybrid search → find the .xlsx chunk → show results
 ```
 
 ---
 
-## ✨ Features
+## 📂 Supported Formats (90+)
 
-### 🔌 Zero config, filesystem-as-database
-No manual imports. No folder hierarchy to maintain. No directory trees to remember. Designate a folder — **drop files in to auto-index**, delete to auto-remove, modify to auto-sync.
+### 📝 Text (46 formats)
+`.md` `.txt` `.csv` `.html` `.htm` `.json` `.yaml` `.yml` `.xml` `.toml`
 
-### 🧠 Native multimodal semantic search
-Powered by **Qwen3-VL-Embedding-8B** (4096 dimensions). Text and images live in **the same vector space**:
+`.py` `.js` `.ts` `.jsx` `.tsx` `.java` `.c` `.cpp` `.h` `.go` `.rs` `.rb` `.php` `.sh` `.bash` `.sql` `.r` `.scala` `.lua`
+
+`.css` `.scss` `.less` `.vue` `.swift` `.kt` `.dart`
+
+`.log` `.conf` `.cfg` `.ini` `.env` `.tex` `.rst` `.org` `.adoc`
+
+### 🏢 Office (6 formats)
+
+| Format | Simple | Complex | Binary |
+|--------|--------|---------|--------|
+| **Word** | `.docx` (text only) → `pipeline` | `.docx` (formulas/images) → `vlm` | `.doc` → `vlm` |
+| **Excel** | `.xlsx` (data only) → `pipeline` | `.xlsx` (charts/formulas) → `vlm` | `.xls` → `vlm` |
+| **PPT** | `.pptx` (text only) → `pipeline` | `.pptx` (charts/animations) → `vlm` | `.ppt` → `vlm` |
+
+> **Complexity detection**: For `.docx` / `.xlsx` / `.pptx`, the plugin reads the ZIP-internal XML to detect formulas, charts, images, pivot tables, animations, etc. (10 markers each). Complex files automatically route to `vlm` model for higher accuracy.
+
+### 📄 PDF
+`.pdf` → MinerU vlm (formulas, tables, images all extracted)
+
+### 🌐 HTML
+`.html` `.htm` → MinerU `MinerU-HTML` model (structured extraction)
+
+### 🖼️ Images (17 formats)
+`.png` `.jpg` `.jpeg` `.jfif` `.webp` `.gif` `.bmp` `.svg` `.tiff` `.tif` `.ico` `.heic` `.heif` `.raw` `.cr2` `.nef` `.arw`
+
+→ VLM summary → text embedding (configurable to multimodal direct embedding)
+
+### 🎬 Video (11 formats)
+`.mp4` `.mov` `.avi` `.mkv` `.webm` `.wmv` `.flv` `.m4v` `.3gp` `.ogv` `.ts`
+
+→ VLM frame analysis → summary → text embedding
+
+### 📧 Email Ingestion
+IMAP-based (imapflow), auto-polls inbox, extracts `.txt` `.md` `.pdf` `.doc` `.docx` `.ppt` `.pptx` `.xls` `.xlsx` `.html` `.htm` `.png` `.jpg` `.jpeg` `.gif` `.svg` `.webp` `.bmp` attachments.
+
+---
+
+## 🔧 How It Works
+
+### Ingestion Pipeline
 
 ```
-You type: "Dark gradient login screen with logo on top-right"
-   ↓            Same vector space
-Image has: An actual login screenshot
-
-→ Search with text, find images. Natively. ✅
-→ No need to describe images manually before searching
+file dropped / email received
+    ↓
+detectFileKind() → FileKind
+    ↓
+├─ text / code   → direct chunking
+├─ pdf           → MinerU API v4 (precision parsing)
+├─ docx/pptx/xlsx → isComplex() → pipeline | vlm → MinerU
+├─ doc/ppt/xls   → MinerU vlm (binary)
+├─ html          → MinerU MinerU-HTML
+├─ image         → VLM describe → text embed (or multimodal)
+├─ video         → VLM frame → summary → text embed
+    ↓
+chunkText() (paragraph / fixed / sentence strategy)
+    ↓
+embedder.embed() → vectors
+    ↓
+store.upsert() → LanceDB
 ```
 
-### 📄 Multi-format auto-parsing
+### Chunking Strategies
+| Strategy | Behavior |
+|----------|----------|
+| `paragraph` | Split on blank lines, merge up to maxTokens |
+| `fixed` | Fixed-size window with overlap |
+| `sentence` | Split on sentence-ending punctuation |
 
-| Type | Status | Pipeline |
-|---|---|---|
-| **PDF** | ✅ | MinerU → text + images |
-| **Markdown** | ✅ | Direct chunking, preserves image references |
-| **Plain text** | ✅ | Direct chunking |
-| **Images (png/jpg/webp)** | ✅ | Standalone visual vectors |
-| **Office (docx/xlsx)** | 🔜 | Planned |
+### Hash Deduplication
+SHA256-based content dedup with hash-level locking to prevent concurrent ingestion of identical files with different names.
 
-### 👁️ Text-image association, WYSIWYG
-PDFs parsed by MinerU retain the original text-image relationship. Search results carry image references.
+### UID-based Email Tracking
+Persists `lastProcessedUID` to avoid re-processing emails across restarts. Failed emails go to retry queue tracked by UID.
+
+---
+
+## 🛠️ OpenClaw Tools
+
+| Tool | Description |
+|------|-------------|
+| `kb_search` | Hybrid semantic + keyword search with optional fileType filter |
+| `kb_ingest` | Manually trigger indexing of a file or all files |
+| `kb_remove` | Remove indexed chunks for a given source file |
+| `kb_status` | Show total chunks, indexed files, config summary |
+
+---
+
+## 📐 Architecture
 
 ```
-Search: "JWT auth flow"
-Hit chunk: Token expired... use refresh_token...
-Linked image: arch-diagram.png → shown inline
-```
-
-### 🚀 Clean architecture, separation of concerns
-
-```
-Storage layer (filesystem)
-  └── /path/to/knowledge/     ← You only care about this folder
-        ├── product-plan.pdf
-        ├── arch-diagram.png
-        └── technical-doc.md
-
-Index layer (LanceDB)
-  └── collection: knowledge_base
-        ├── chunk_text: "Token expires after..."
-        ├── embedding: [4096-dim vector]
-        ├── source_path: "technical-doc.md"
-        ├── images: ["arch-diagram.png"]
-        └── ...
-
-Retrieval layer (multimodal + reranker)
-  └── Qwen3-VL-8B → vectorization
-  └── LanceDB ANNS → approximate nearest neighbor search
-  └── BGE-m3 → reranking (optional)
+┌─────────────────────────────────────┐
+│          Storage Layer               │
+│  /path/to/knowledge/ (filesystem)    │
+│  ~/.ark-kb/* (state, LanceDB)        │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│          Index Layer                 │
+│  LanceDB (embedded, zero-ops)        │
+│  IVF-PQ ANN search, millisecond       │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│          Retrieval Layer             │
+│  Hybrid: vector + BM25               │
+│  Optional: reranking (BGE-m3)        │
+│  fileType filter, pagination         │
+└─────────────────────────────────────┘
 ```
 
 ---
 
-## 🔧 Technical Stack
+## 🔩 Technical Stack
 
-| Component | Technology | Notes |
-|---|---|---|
-| Vector database | **LanceDB** | Embedded, zero-ops, single-binary |
-| Multimodal embedding | **Qwen3-VL-Embedding-8B** | 4096-dim, unified text/image space |
-| Search algo | **IVF-PQ (LanceDB native)** | Approximate NN, millisecond latency |
-| Reranking (opt) | **BGE-m3** | Cross-encoder precision filter |
-| File watching | **Node.js fs.watch (inotify)** | Real-time add/change/delete detection |
-| PDF parsing | **MinerU** | High-precision PDF→Markdown + image extraction |
-
-## 🗺️ Roadmap
-
-- [x] `v0.1` — Project scaffold + GitHub repo
-- [ ] `v0.2` — Core: file watcher + auto-indexing + semantic search
-- [ ] `v0.3` — PDF auto-parsing (MinerU integration)
-- [ ] `v0.4` — Image multimodal indexing
-- [ ] `v0.5` — Reranker support
-- [ ] `v0.6` — OpenClaw plugin registration (kb_search / kb_ingest tools)
-- [ ] `v0.7` — Knowledge management CLI/TUI
-- [ ] `v1.0` — Stable release + Office document support
+| Component | Technology |
+|---|---|
+| Vector DB | **LanceDB** (embedded, zero-ops) |
+| PDF/Office parsing | **MinerU API v4** (precision parsing + complexity routing) |
+| Embedding | Configurable (MiniMax / Qwen / etc.) |
+| Image understanding | **VLM** (MiniMax-VL / Qwen-VL) |
+| Video summarization | **VLM** frame analysis |
+| File watching | **fs.watch** + debounce |
+| Email | **imapflow** (IMAP, configurable polling) |
+| Search algo | **IVF-PQ ANN** + **BM25** keyword |
+| Chunking | paragraph / fixed / sentence strategies |
+| Dedup | SHA256 content hash + hash-level locking |
+| Runtime | Node.js / TypeScript |
 
 ---
 
-## 🚀 Quick Start (planned)
+## 🚀 Quick Start
 
 ```bash
-# 1. Set your knowledge base directory
-export ARK_KB_PATH=/path/to/your/knowledge
+# 1. Install
+npm install ark-kb
 
-# 2. Start (file watcher begins automatically)
-npx ark-kb start
+# 2. Configure (plugin-config.json)
+{
+  "knowledgePath": "/path/to/knowledge",
+  "embedding": { "model": "qwen/Qwen3-VL-Embedding-8B" },
+  "pdfParser": {
+    "api": "mineru",
+    "endpoint": "https://mineru.net/api/v4/extract/task",
+    "apiKey": "your-mineru-token"
+  }
+}
 
-# 3. Drop files into /path/to/your/knowledge
-# Auto-indexed, no action needed
+# 3. Drop files into /path/to/knowledge
+#    → Auto-indexed. No action needed.
 
-# 4. Search
-npx ark-kb search "login page design"
+# 4. Search via OpenClaw tool
+kb_search(query="Q2 revenue forecast", fileType="xlsx")
 ```
-
----
-
-## 🤝 Who is it for
-
-- **AI users** — Give your AI assistant a private knowledge base to query
-- **Knowledge workers** — Unified search across PDFs, screenshots, notes
-- **Designers / PMs** — Design drafts, prototypes, requirement docs, all searchable
-- **Technical writers** — Architecture docs, diagrams, code snippets, one-stop retrieval
 
 ---
 
 ## 📝 License
 
 AGPL v3 © [njuboy11](https://github.com/njuboy11)
-
-Contributions are accepted under the [Contributor License Agreement](CLA.md).
 
 > **A small ark that holds your world.** 🏛️
