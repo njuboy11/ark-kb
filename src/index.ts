@@ -743,9 +743,7 @@ export function register(api: {
   config?: Record<string, any>;
   pluginConfig?: Record<string, any>;
 }): void {
-  // Prevent double registration (OpenClaw loader calls register() twice)
-  if ((globalThis as any).__ark_kb_registered) return;
-  (globalThis as any).__ark_kb_registered = true;
+  // Idempotent: OpenClaw may call register() multiple times (init + hot-restart)
 
   const pluginDir = import.meta.dirname!;
   const standalonePath = join(pluginDir, "plugin-config.json");
@@ -826,7 +824,6 @@ export function register(api: {
     id: "ark-kb",
     async shutdown() {
       await ark.shutdown();
-      (globalThis as any).__ark_kb_registered = false;
     },
   });
 }
