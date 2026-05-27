@@ -171,7 +171,7 @@ Persists `lastProcessedUID` to avoid re-processing emails across restarts. Faile
 
 ```bash
 # 1. Install
-npm install njuboy11-ark-kb
+npm install ark-kb
 
 # 2. Configure (plugin-config.json)
 {
