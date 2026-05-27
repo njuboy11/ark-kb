@@ -1,101 +1,598 @@
 <!DOCTYPE html>
-<html lang="zh" class="dark">
+<html lang="zh">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ark KB</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{surface:"#0a0a0b",card:"#111113",hover:"#1a1a1d",border:"#2a2a2e"}}}}</script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-*{font-family:'Inter',sans-serif;scrollbar-width:thin;scrollbar-color:#2a2a2e transparent}
-body{background:#0a0a0b;color:#a1a1aa}
-.msg-user{background:linear-gradient(135deg,#6366f1,#8b5cf6)}
-.glass{background:rgba(255,255,255,.03);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.06)}
-input,textarea,select{transition:all .15s}
-input:focus,textarea:focus,select:focus{outline:none;border-color:#6366f1!important;box-shadow:0 0 0 1px #6366f133}
+*{box-sizing:border-box;margin:0;padding:0}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-thumb{background:#d0d7de;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#afb8c1}
+:root{
+  --bg:#f8f9fa;--bg2:#f1f3f5;--bg3:#eceef0;--bg4:#e5e5ea;
+  --border:#e5e5ea;--border2:#d1d1d6;
+  --text:#3c3c43;--text2:#6e6e73;--text3:#8c959f;
+  --accent:#dc2626;--accent2:#ef4444;--accent-light:#fef2f2;
+  --indigo:#6366f1;--indigo2:#818cf8;
+  --green:#15803d;--red:#dc2626;--yellow:#b45309;
+  --radius:8px;--radius-lg:12px;--radius-xl:16px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:"JetBrains Mono","Fira Code",Menlo,Monaco,Consolas,monospace;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font);font-size:14px;color:var(--text);background:var(--bg);line-height:1.55;-webkit-font-smoothing:antialiased}
+
+/* ── App shell ── */
+.app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* ── Top bar ── */
+.topbar{
+  display:flex;align-items:center;padding:0 16px;height:48px;flex-shrink:0;
+  border-bottom:1px solid var(--border);background:var(--bg);
+  gap:0;
+}
+.topbar-logo{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#1f2328;flex-shrink:0}
+.logo-icon{
+  width:28px;height:28px;border-radius:7px;
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:700;font-size:12px;
+}
+.topbar-tabs{display:flex;gap:1px;margin-left:28px;flex:1}
+.tab-pill{
+  display:flex;align-items:center;gap:5px;padding:4px 14px;
+  border-radius:6px;font-size:13px;font-weight:500;color:var(--text2);
+  cursor:pointer;border:1px solid transparent;transition:all 0.15s;
+  background:0;white-space:nowrap;font-family:var(--font);
+}
+.tab-pill:hover{color:var(--text);background:rgba(27,31,36,0.06)}
+.tab-pill.active{color:#1f2328;background:#eaeef2;border-color:var(--border)}
+
+/* ── Page ── */
+.page{flex:1;overflow:hidden}
+
+/* ── KB page: left files, center chat, right sources ── */
+.kb-page{display:flex;height:100%;overflow:hidden}
+
+/* ── Left file panel ── */
+.files-side{
+  width:260px;flex-shrink:0;
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  overflow:hidden;background:var(--bg);
+}
+.files-toolbar{
+  display:flex;align-items:center;gap:6px;
+  padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0;
+  background:var(--bg2);
+}
+.kb-sel{
+  flex:1;height:30px;padding:0 8px;
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:6px;color:#1f2328;font-family:var(--font);font-size:12px;
+  cursor:pointer;outline:none;transition:border-color 0.15s;
+}
+.kb-sel:hover{border-color:#afb8c1}
+.kb-sel:focus{border-color:var(--accent)}
+.btn-new{
+  height:28px;padding:0 10px;
+  background:var(--indigo);border:1px solid var(--indigo);
+  border-radius:6px;color:#fff;font-family:var(--font);font-size:12px;font-weight:600;
+  cursor:pointer;transition:all 0.15s;white-space:nowrap;flex-shrink:0;
+}
+.btn-new:hover{background:var(--indigo2);border-color:var(--indigo2)}
+
+.files-hdr{
+  padding:8px 12px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:12px;font-weight:500;color:var(--text2);flex-shrink:0;
+}
+.files-count{font-size:11px;color:var(--text3);font-weight:400}
+.files-drop{
+  margin:8px 10px;padding:10px;
+  border:1px dashed var(--border);border-radius:8px;
+  text-align:center;cursor:pointer;transition:all 0.15s;
+  font-size:11px;color:var(--text2);
+}
+.files-drop:hover{border-color:var(--accent);color:var(--accent)}
+.files-drop.dragover{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+.files-list{flex:1;overflow-y:auto;padding:4px 6px;display:flex;flex-direction:column;gap:1px}
+.file-item{
+  display:flex;align-items:center;gap:7px;padding:6px 8px;
+  border-radius:6px;cursor:default;transition:background 0.12s;
+}
+.file-item:hover{background:rgba(27,31,36,0.05)}
+.file-item:hover .file-del{display:inline}
+.file-icon{font-size:13px;flex-shrink:0}
+.file-name{
+  flex:1;font-size:12px;color:#1f2328;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+}
+.file-del{
+  display:none;background:0;border:0;cursor:pointer;
+  color:var(--text3);font-size:12px;padding:1px 4px;border-radius:3px;
+  transition:all 0.12s;flex-shrink:0;
+}
+.file-del:hover{color:var(--red);background:rgba(207,34,46,0.08)}
+.files-empty{
+  padding:20px 10px;text-align:center;color:var(--text3);
+  font-size:11px;line-height:1.7;
+}
+
+/* ── Center chat panel ── */
+.kb-chat{
+  width:0;min-width:0;max-width:calc(100% - 220px);flex:1;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  background:var(--bg2);
+}
+.kb-msgs{
+  flex:1;overflow-y:auto;padding:16px 20px;
+  display:flex;flex-direction:column;
+}
+.kb-msgs-inner{display:flex;flex-direction:column;gap:0}
+
+/* ── Input area (floating card, lighter than chat bg) ── */
+.kb-input-area{
+  flex-shrink:0;
+  padding:0 16px 16px;
+  background:var(--bg2);
+}
+.kb-input-card{
+  background:#ffffff;
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:3px 3px 3px 14px;
+  display:flex;align-items:flex-end;gap:0;
+  transition:border-color 0.15s,box-shadow 0.15s;
+  box-shadow:0 1px 3px rgba(27,31,36,0.06);
+}
+.kb-input-card:focus-within{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(9,105,218,0.12);
+}
+.kb-input{
+  flex:1;min-height:42px;max-height:120px;padding:10px 0;
+  background:transparent;border:none;outline:none;
+  color:#1f2328;font-family:var(--font);font-size:14px;line-height:1.5;resize:none;
+}
+.kb-input::placeholder{color:#8c959f}
+.kb-send{
+  width:40px;height:40px;flex-shrink:0;
+  background:var(--indigo);border:1px solid var(--indigo);
+  border-radius:8px;color:#fff;
+  cursor:pointer;transition:all 0.15s;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+}
+.kb-send:hover{background:var(--indigo2);border-color:var(--indigo2)}
+
+/* ── Message bubbles ── */
+.msg-row{display:flex;align-items:flex-end;gap:10px;padding:3px 0}
+.msg-row.user{flex-direction:row-reverse}
+.msg-avatar{
+  width:28px;height:28px;border-radius:7px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;margin-bottom:1px;
+}
+.msg-avatar.ai{
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;
+}
+.msg-avatar.user-msg{
+  background:var(--accent-light);color:var(--accent);
+  border:1px solid rgba(9,105,218,0.2);
+}
+.msg-avatar.error-msg{
+  background:rgba(207,34,46,0.08);color:var(--red);
+  border:1px solid rgba(207,34,46,0.2);
+}
+.msg-content{display:flex;flex-direction:column;gap:2px;max-width:68%}
+.msg-row.user .msg-content{align-items:flex-end}
+.msg-bubble{
+  padding:8px 12px;font-size:14px;line-height:1.55;
+  word-break:break-word;white-space:pre-wrap;
+}
+.msg-row.ai .msg-bubble{
+  background:#ffffff;color:#1f2328;
+  border:1px solid var(--border);border-radius:10px;
+  border-bottom-left-radius:4px;
+  box-shadow:0 1px 3px rgba(27,31,36,0.04);
+}
+.msg-row.user .msg-bubble{
+  background:var(--accent);color:#fff;
+  border-radius:10px;border-bottom-right-radius:4px;
+}
+.msg-row.error .msg-bubble{
+  background:rgba(207,34,46,0.06);color:var(--red);
+  border:1px solid rgba(207,34,46,0.2);border-radius:10px;
+}
+.msg-time{font-size:10px;color:var(--text3);padding:0 2px}
+
+/* ── Thinking ── */
+.thinking-row{display:flex;align-items:flex-end;gap:10px;padding:3px 0}
+.thinking-bubble{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 12px;
+  background:#ffffff;border:1px solid var(--border);border-radius:10px;
+  border-bottom-left-radius:4px;
+  font-size:13px;color:var(--text2);
+  box-shadow:0 1px 3px rgba(27,31,36,0.04);
+}
+.thinking-dots{display:flex;gap:4px;align-items:center}
+.thinking-dot{
+  width:5px;height:5px;border-radius:50%;background:var(--text3);
+  animation:bounce 1.4s ease-in-out infinite;
+}
+.thinking-dot:nth-child(2){animation-delay:0.15s}
+.thinking-dot:nth-child(3){animation-delay:0.3s}
+@keyframes bounce{
+  0%,60%,100%{transform:translateY(0);opacity:0.4}
+  30%{transform:translateY(-4px);opacity:1}
+}
+
+/* ── Right sources panel ── */
+.kb-sources{
+  width:220px;flex-shrink:0;
+  border-left:1px solid var(--border);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  background:var(--bg);
+}
+.kb-sources-hdr{
+  padding:10px 12px 8px;
+  border-bottom:1px solid var(--border);
+  font-size:12px;font-weight:500;color:var(--text2);
+  display:flex;align-items:center;gap:6px;flex-shrink:0;
+}
+.kb-sources-hdr .dot{
+  width:6px;height:6px;border-radius:50%;background:#e5e5ea;
+  transition:background 0.2s;
+}
+.kb-sources-hdr .dot.active{background:var(--green)}
+.kb-sources-list{
+  flex:1;overflow-y:auto;padding:8px 10px;
+  display:flex;flex-direction:column;gap:4px;
+}
+.kb-sources-empty{
+  padding:20px 10px;text-align:center;
+  font-size:11px;color:var(--text3);line-height:1.6;
+}
+.kb-source-item{
+  display:flex;align-items:center;gap:6px;
+  padding:6px 8px;border-radius:6px;
+  cursor:default;transition:background 0.12s;
+  border:1px solid transparent;
+}
+.kb-source-item:hover{background:rgba(27,31,36,0.04)}
+.kb-source-item.active{
+  border-color:var(--border);
+  background:var(--bg2);
+}
+.kb-source-icon{font-size:12px;flex-shrink:0}
+.kb-source-name{
+  flex:1;font-size:11px;color:var(--text2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+}
+.kb-source-score{
+  font-size:10px;color:var(--text3);flex-shrink:0;
+  font-family:var(--mono);
+}
+.kb-source-item.active .kb-source-score{color:var(--green)}
+
+/* ── Sources (inline in messages) ── */
+.msg-sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.msg-source{
+  font-size:11px;color:var(--text2);
+  padding:2px 8px;border-radius:20px;
+  background:rgba(27,31,36,0.04);border:1px solid var(--border);
+  text-decoration:none;transition:all 0.12s;
+}
+.msg-source:hover{color:var(--accent);border-color:var(--accent)}
+
+/* ── Config page ── */
+.config-page{flex:1;overflow-y:auto;padding:20px;background:var(--bg2)}
+.config-inner{max-width:600px;display:flex;flex-direction:column;gap:12px}
+.config-card{
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;
+  background:var(--bg);
+}
+.config-card-hdr{
+  padding:9px 14px;background:var(--bg2);
+  border-bottom:1px solid var(--border);
+  font-size:12px;font-weight:500;color:#1f2328;
+}
+.config-card-body{padding:10px 14px;display:flex;flex-direction:column;gap:7px}
+.config-row{display:flex;align-items:center;gap:10px}
+.config-label{width:80px;text-align:right;font-size:12px;color:var(--text2);flex-shrink:0}
+.config-input{
+  flex:1;height:30px;padding:0 10px;
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  color:#1f2328;font-family:var(--mono);font-size:12px;outline:none;transition:border-color 0.15s;
+}
+.config-input:focus{border-color:var(--accent)}
+.config-footer{display:flex;justify-content:flex-end;padding:6px 0 0}
+.config-save{
+  height:32px;padding:0 18px;border-radius:6px;
+  background:var(--indigo);border:1px solid var(--indigo);
+  color:#fff;font-family:var(--font);font-size:13px;font-weight:600;
+  cursor:pointer;transition:all 0.15s;
+}
+.config-save:hover{background:var(--indigo2);border-color:var(--indigo2)}
+
+/* ── Logs page ── */
+.logs-page{flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:var(--bg2)}
+.logs-toolbar{display:flex;gap:6px}
+.logs-btn{
+  height:28px;padding:0 12px;border-radius:6px;
+  background:var(--bg);border:1px solid var(--border);
+  color:var(--text2);font-family:var(--font);font-size:12px;cursor:pointer;transition:all 0.15s;
+}
+.logs-btn:hover{color:var(--text);border-color:#afb8c1}
+.logs-content{
+  flex:1;overflow-y:auto;
+  background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:12px 14px;font-family:var(--mono);font-size:11px;line-height:1.75;
+  color:#656d76;white-space:pre-wrap;word-break:break-word;
+}
 </style>
 </head>
-<body class="flex h-screen overflow-hidden">
-<aside class="w-56 flex flex-col p-5 border-r border-[#1a1a1d] shrink-0">
-  <div class="flex items-center gap-2 mb-8">
-    <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">A</div>
-    <span class="font-semibold text-white text-sm">Ark KB</span>
+<body>
+<div class="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-logo">
+      <div class="logo-icon">AK</div>
+      <span>Ark KB</span>
+    </div>
+    <div class="topbar-tabs">
+      <button class="tab-pill active" id="tabKB" onclick="switchTab('kb')">💬 知识库</button>
+      <button class="tab-pill" id="tabConfig" onclick="switchTab('config')">⚙️ 配置</button>
+      <button class="tab-pill" id="tabLogs" onclick="switchTab('logs')">📋 日志</button>
+    </div>
   </div>
-  <nav class="flex flex-col gap-1 flex-1">
-    <a href="#chat" class="nav-link flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 hover:bg-white/[.03] transition-all no-underline" onclick="switchTab('chat')"><span class="text-base">💬</span>聊天</a>
-    <a href="#config" class="nav-link flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 hover:bg-white/[.03] transition-all no-underline" onclick="switchTab('config')"><span class="text-base">⚙️</span>配置</a>
-    <a href="#logs" class="nav-link flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 hover:bg-white/[.03] transition-all no-underline" onclick="switchTab('logs')"><span class="text-base">📋</span>日志</a>
-  </nav>
-  <div class="text-xs text-zinc-500 mt-auto pt-4 border-t border-[#1a1a1d]" id="kbStatus"></div>
-</aside>
 
-<main class="flex-1 flex flex-col min-w-0">
-  <header class="h-14 flex items-center gap-3 px-6 glass shrink-0">
-    <select id="kbSelect" onchange="onKbChange()" class="h-9 px-4 bg-white/[.04] border border-[#2a2a2e] rounded-lg text-sm text-zinc-300 cursor-pointer"><option value="all">📚 全部知识库</option></select>
-    <button onclick="newKB()" class="h-9 px-5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium rounded-lg transition-colors">新建</button>
-    <button id="delKbBtn" class="h-9 px-5 hidden text-sm text-red-400 hover:bg-red-400/10 rounded-lg transition-colors" onclick="delKB()">删除</button>
-  </header>
+  <!-- Pages -->
+  <div class="page">
 
-  <section class="flex-1 flex overflow-hidden">
-    <!-- Chat -->
-    <div id="chatPage" class="flex-1 flex">
-      <div class="flex-1 flex flex-col min-w-0">
-        <div id="messages" class="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5"></div>
-        <div class="p-4 glass flex gap-3 shrink-0 mx-4 mb-4 rounded-xl">
-          <textarea id="chatInput" rows="1" placeholder="Ask anything about your knowledge base…" class="flex-1 py-3 px-0 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 resize-none" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"></textarea>
-          <button onclick="sendMessage()" class="px-6 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium rounded-lg transition-colors shrink-0">Send</button>
+    <!-- KB: left files, right chat -->
+    <div id="pageKB" class="kb-page">
+      <!-- Left: files -->
+      <aside class="files-side">
+        <div class="files-toolbar">
+          <select class="kb-sel" id="kbSel" onchange="onKbChange()">
+            <option value="all">📚 全部知识库</option>
+          </select>
+          <button class="btn-new" onclick="newKB()">+ 新建</button>
         </div>
-      </div>
-      <aside class="w-72 border-l border-[#1a1a1d] flex flex-col shrink-0 overflow-hidden">
-        <div class="px-5 py-4 text-sm font-medium text-zinc-300 flex justify-between items-center border-b border-[#1a1a1d]">Files<span class="text-xs text-zinc-600 font-normal" id="fileCount"></span></div>
-        <div class="p-3">
-          <div id="fileDrop" class="flex flex-col items-center justify-center py-6 border-2 border-dashed border-[#2a2a2e] rounded-xl text-xs text-zinc-600 cursor-pointer hover:border-indigo-500/50 hover:text-indigo-400 transition-all" onclick="this.querySelector('input').click()">
-            <div class="text-2xl mb-1">📤</div>
-            <div>Drop files or click to upload</div>
-            <input type="file" id="fileInput" multiple hidden onchange="uploadFiles(this.files)">
+        <div class="files-hdr">
+          <span>📁 文件列表</span>
+          <span class="files-count" id="fileCount"></span>
+        </div>
+        <div class="files-drop" id="fileDrop" onclick="document.getElementById('fileInput').click()">
+          📤 点击上传文件
+          <input type="file" id="fileInput" multiple hidden onchange="uploadFiles(this.files)">
+        </div>
+        <div class="files-list" id="fileList"></div>
+      </aside>
+
+      <!-- Center: chat -->
+      <div class="kb-chat">
+        <div class="kb-msgs">
+          <div class="kb-msgs-inner" id="messages"></div>
+        </div>
+        <div class="kb-input-area">
+          <div class="kb-input-card">
+            <textarea class="kb-input" id="chatInput" rows="1" placeholder="问任何关于知识库的问题…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"></textarea>
+            <button class="kb-send" onclick="sendMessage()">↑</button>
           </div>
         </div>
-        <div id="fileList" class="flex-1 overflow-y-auto px-3"></div>
+      </div>
+
+      <!-- Right: sources -->
+      <aside class="kb-sources">
+        <div class="kb-sources-hdr">
+          <span class="dot" id="sourcesDot"></span>
+          <span>📑 相关文件</span>
+        </div>
+        <div class="kb-sources-list" id="sourcesList">
+          <div class="kb-sources-empty">暂无相关文件</div>
+        </div>
       </aside>
     </div>
 
     <!-- Config -->
-    <div id="configPage" class="hidden flex-1 overflow-y-auto p-6">
-      <div class="max-w-2xl flex flex-col gap-4">
-        <div class="rounded-xl border border-[#1a1a1d] overflow-hidden"><div class="px-5 py-3.5 bg-white/[.02] text-sm font-medium text-zinc-200 border-b border-[#1a1a1d]">🧠 Embedding</div><div class="p-5" id="cfgEmbedding"></div></div>
-        <div class="rounded-xl border border-[#1a1a1d] overflow-hidden"><div class="px-5 py-3.5 bg-white/[.02] text-sm font-medium text-zinc-200 border-b border-[#1a1a1d]">🔍 Reranker</div><div class="p-5" id="cfgReranker"></div></div>
-        <div class="rounded-xl border border-[#1a1a1d] overflow-hidden"><div class="px-5 py-3.5 bg-white/[.02] text-sm font-medium text-zinc-200 border-b border-[#1a1a1d]">👁 VLM</div><div class="p-5" id="cfgVLM"></div></div>
-        <div class="rounded-xl border border-[#1a1a1d] overflow-hidden"><div class="px-5 py-3.5 bg-white/[.02] text-sm font-medium text-zinc-200 border-b border-[#1a1a1d]">💬 LLM</div><div class="p-5" id="cfgLLM"></div></div>
-        <div class="flex justify-end pt-2"><button onclick="saveConfig()" class="px-8 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium rounded-lg transition-colors">Save Changes</button></div>
+    <div id="pageConfig" class="config-page" style="display:none">
+      <div class="config-inner">
+        <div class="config-card">
+          <div class="config-card-hdr">🧠 Embedding</div>
+          <div class="config-card-body" id="cfgEmbedding"></div>
+        </div>
+        <div class="config-card">
+          <div class="config-card-hdr">🔍 Reranker</div>
+          <div class="config-card-body" id="cfgReranker"></div>
+        </div>
+        <div class="config-card">
+          <div class="config-card-hdr">👁 VLM</div>
+          <div class="config-card-body" id="cfgVLM"></div>
+        </div>
+        <div class="config-card">
+          <div class="config-card-hdr">💬 LLM</div>
+          <div class="config-card-body" id="cfgLLM"></div>
+        </div>
+        <div class="config-footer">
+          <button class="config-save" onclick="saveConfig()">保存配置</button>
+        </div>
       </div>
     </div>
 
     <!-- Logs -->
-    <div id="logPage" class="hidden flex-1 overflow-hidden p-6 flex flex-col gap-3">
-      <div class="flex gap-3"><button onclick="loadLogs()" class="px-4 py-2 bg-white/[.04] border border-[#2a2a2e] text-zinc-400 hover:text-zinc-200 text-sm rounded-lg transition-colors">Refresh</button></div>
-      <pre id="logContent" class="flex-1 overflow-y-auto rounded-xl border border-[#1a1a1d] p-5 text-xs text-zinc-500 leading-relaxed font-mono"></pre>
+    <div id="pageLogs" class="logs-page" style="display:none">
+      <div class="logs-toolbar">
+        <button class="logs-btn" onclick="loadLogs()">🔄 刷新</button>
+      </div>
+      <pre class="logs-content" id="logContent"></pre>
     </div>
-  </section>
-</main>
+
+  </div>
+</div>
 
 <script>
 let currentKB="all",kbs=[];
-function switchTab(t){document.querySelectorAll(".nav-link").forEach((a,i)=>{const active=a.getAttribute("href")==="#"+t;a.style.background=active?"rgba(255,255,255,.04)":"";a.style.color=active?"#e4e4e7":"#a1a1aa"});document.getElementById("chatPage").style.display=t==="chat"?"flex":"none";document.getElementById("configPage").classList.toggle("hidden",t!=="config");document.getElementById("logPage").classList.toggle("hidden",t!=="logs");if(t==="config")loadConfig();if(t==="logs")loadLogs()}
-async function loadKBs(){try{const r=await fetch("/api/kb");kbs=await r.json();const s=document.getElementById("kbSelect");s.innerHTML='<option value="all">📚 全部知识库</option>';kbs.forEach(k=>s.innerHTML+=`<option value="${k.name}">📂 ${k.name}<span class="text-zinc-600 ml-2">${k.chunkCount||0} chunks</span></option>`);document.getElementById("delKbBtn").classList.toggle("hidden",currentKB==="all");document.getElementById("kbStatus").innerHTML=`${kbs.length} knowledge bases<br>${kbs.reduce((a,k)=>a+(k.chunkCount||0),0)} indexed chunks`}catch(e){}}
-async function newKB(){const n=prompt("Name:");if(!n)return;try{await fetch("/api/kb",{method:"POST",body:JSON.stringify({name:n}),headers:{"Content-Type":"application/json"}});await loadKBs()}catch(e){alert(e.message)}}
-async function delKB(){if(!confirm(`Delete "${currentKB}"?`))return;try{await fetch(`/api/kb/${encodeURIComponent(currentKB)}`,{method:"DELETE"});currentKB="all";document.getElementById("kbSelect").value="all";await loadKBs();await loadFiles()}catch(e){alert(e.message)}}
-function onKbChange(){currentKB=document.getElementById("kbSelect").value;document.getElementById("delKbBtn").classList.toggle("hidden",currentKB==="all");loadFiles()}
-async function loadFiles(){const l=document.getElementById("fileList"),t=currentKB==="all"?(kbs[0]?.name||"default"):currentKB;if(!t){l.innerHTML="";return}try{const r=await fetch(`/api/kb/${encodeURIComponent(t)}/files`),fs=await r.json();document.getElementById("fileCount").textContent=fs.length?`${fs.length} files`:"";if(fs.error)return;if(!fs.length){l.innerHTML='<div class="py-8 text-center text-xs text-zinc-600">No files yet</div>';return}l.innerHTML=fs.map((f,i)=>`<div class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[.02] transition-colors group"><span class="text-sm">📄</span><div class="flex-1 min-w-0"><div class="text-xs text-zinc-300 truncate">${f.name}</div><div class="text-[10px] text-zinc-600">${fmtSize(f.size)}</div></div><div class="hidden group-hover:flex gap-1"><button onclick="downloadFile('${encodeURIComponent(f.name)}')" class="text-zinc-500 hover:text-zinc-200 p-1 text-xs">↓</button><button onclick="deleteFile('${encodeURIComponent(f.name)}')" class="text-zinc-500 hover:text-red-400 p-1 text-xs">×</button></div></div>`).join("")}catch(e){}}function fmtSize(b){if(!b)return"0B";const u=["B","KB","MB","GB"];const i=Math.floor(Math.log(b)/Math.log(1024));return(b/Math.pow(1024,i)).toFixed(i?1:0)+" "+u[i]}
-async function uploadFiles(fs){if(!fs?.length)return;const t=currentKB==="all"?(kbs[0]?.name||"default"):currentKB;if(!t)return;const fd=new FormData();for(const f of fs)fd.append("files",f);try{await fetch(`/api/kb/${encodeURIComponent(t)}/upload`,{method:"POST",body:fd});await loadFiles()}catch(e){alert(e.message)}}
-function downloadFile(f){const t=currentKB==="all"?(kbs[0]?.name||"default"):currentKB;window.open(`/api/kb/${encodeURIComponent(t)}/files/${f}`,"_blank")}
-async function deleteFile(f){if(!confirm(`Delete ${decodeURIComponent(f)}?`))return;const t=currentKB==="all"?(kbs[0]?.name||"default"):currentKB;try{await fetch(`/api/kb/${encodeURIComponent(t)}/files/${f}`,{method:"DELETE"});await loadFiles()}catch(e){alert(e.message)}}
-async function sendMessage(){const inp=document.getElementById("chatInput"),msg=inp.value.trim();if(!msg)return;inp.value="";const msgs=document.getElementById("messages");msgs.innerHTML+=`<div class="flex justify-end"><div class="msg-user max-w-[75%] px-5 py-3 rounded-2xl rounded-br-md text-sm text-white leading-relaxed shadow-lg shadow-indigo-500/10">${h(msg)}</div></div><div class="flex gap-3"><div class="w-7 h-7 rounded-full bg-white/[.04] flex items-center justify-center text-xs shrink-0 mt-0.5">AI</div><div class="text-sm text-zinc-500 py-2">Thinking…</div></div>`;msgs.scrollTop=msgs.scrollHeight;try{const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:msg,kbName:currentKB==="all"?null:currentKB})}),d=await r.json();const el=msgs.lastElementChild;el&&el.remove();let html=`<div class="flex gap-3"><div class="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-[10px] text-white shrink-0 mt-0.5">AK</div><div class="max-w-[75%]"><div class="text-sm text-zinc-200 leading-relaxed">${h(d.answer).replace(/\n/g,"<br>")}</div>`;if(d.sources?.length){html+=`<div class="mt-3 flex flex-wrap gap-1.5">${[...new Set(d.sources.map(s=>s.file))].map(f=>`<a href="/api/kb/${encodeURIComponent(currentKB==="all"?(kbs[0]?.name||"default"):currentKB)}/files/${encodeURIComponent(f)}" target="_blank" class="text-[11px] text-zinc-500 hover:text-indigo-400 no-underline px-2 py-0.5 rounded-md bg-white/[.03] border border-[#1a1a1d] transition-colors">${f}</a>`).join("")}</div>`}html+="</div></div>";msgs.innerHTML+=html}catch(e){const el=msgs.lastElementChild;el&&el.remove();msgs.innerHTML+=`<div class="flex gap-3"><div class="w-7 h-7 rounded-full bg-red-500/20 flex items-center justify-center text-xs text-red-400 shrink-0">!</div><div class="text-sm text-red-400 py-2">${h(e.message)}</div></div>`}msgs.scrollTop=msgs.scrollHeight}
-function h(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
-async function loadConfig(){try{const r=await fetch("/api/config"),c=await r.json();document.getElementById("cfgEmbedding").innerHTML=buildCfg("embedding",c.embedding);document.getElementById("cfgReranker").innerHTML=buildCfg("reranker",c.reranker);document.getElementById("cfgVLM").innerHTML=buildCfg("videoSummarizer",c.videoSummarizer||{});document.getElementById("cfgLLM").innerHTML=buildCfg("llm",c.providers?.llm||{})}catch(e){}}
-function buildCfg(prefix,obj){if(!obj)return'<div class="text-zinc-600 text-sm">Not configured</div>';return Object.entries(obj).filter(([k])=>k!=="api"&&typeof obj[k]!=="object").map(([k,v])=>`<div class="flex items-center gap-4 mb-3"><label class="w-32 text-right text-xs text-zinc-500 shrink-0">${k}</label><input id="cfg_${prefix}_${k}" value="${v||""}" class="flex-1 bg-[#0a0a0b] border border-[#2a2a2e] rounded-lg px-3 py-2 text-sm text-zinc-300 font-mono placeholder:text-zinc-700"></div>`).join("")}
-async function saveConfig(){const u={};document.querySelectorAll("[id^=cfg_]").forEach(i=>{const[,p,k]=i.id.split("_");u[p]=u[p]||{};u[p][k]=i.value});try{await fetch("/api/config",{method:"PUT",body:JSON.stringify(u),headers:{"Content-Type":"application/json"}});alert("Saved")}catch(e){alert("Failed: "+e.message)}}
-async function loadLogs(){try{const r=await fetch("/api/logs?limit=300"),logs=await r.json();document.getElementById("logContent").textContent=logs.join("\n")||"No logs yet"}catch(e){}}
-loadKBs();loadFiles();
-const fd=document.getElementById("fileDrop");fd.addEventListener("dragover",e=>{e.preventDefault();fd.style.borderColor="rgba(99,102,241,.4)"});fd.addEventListener("dragleave",()=>fd.style.borderColor="");fd.addEventListener("drop",e=>{e.preventDefault();fd.style.borderColor="";uploadFiles(e.dataTransfer.files)});
+
+function switchTab(t){
+  document.querySelectorAll('.tab-pill').forEach(a=>a.classList.remove('active'));
+  const names={kb:'KB',config:'Config',logs:'Logs'};
+  document.getElementById('tab'+names[t]).classList.add('active');
+  document.getElementById('pageKB').style.display = t==='kb'?'flex':'none';
+  document.getElementById('pageConfig').style.display = t==='config'?'flex':'none';
+  document.getElementById('pageLogs').style.display = t==='logs'?'flex':'none';
+  if(t==='config') loadConfig();
+  if(t==='logs') loadLogs();
+}
+
+function ts(){
+  const d=new Date();
+  return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+}
+
+async function loadKBs(){
+  try{
+    const r=await fetch("/api/kb");
+    kbs=await r.json();
+    const s=document.getElementById("kbSel");
+    s.innerHTML='<option value="all">📚 全部知识库</option>';
+    kbs.forEach(k=>{s.innerHTML+=`<option value="${h(k.name)}">📂 ${h(k.name)} (${k.chunkCount||0})</option>`;});
+  }catch(e){}
+}
+
+async function newKB(){
+  const n=prompt("知识库名称:");
+  if(!n)return;
+  try{await fetch("/api/kb",{method:"POST",body:JSON.stringify({name:n}),headers:{"Content-Type":"application/json"}});await loadKBs();}catch(e){alert(e.message);}
+}
+
+function onKbChange(){
+  currentKB=document.getElementById("kbSel").value;
+  loadFiles();
+}
+
+function targetKB(){
+  return currentKB==="all"?(kbs[0]?.name||"default"):currentKB;
+}
+
+async function loadFiles(){
+  const t=targetKB();
+  const l=document.getElementById("fileList");
+  if(!t){l.innerHTML='<div class="files-empty">请先创建知识库</div>';return;}
+  try{
+    const r=await fetch(`/api/kb/${encodeURIComponent(t)}/files`);
+    const fs=await r.json();
+    document.getElementById("fileCount").textContent=fs.length?`${fs.length}个`:'';
+    if(!fs.length){l.innerHTML='<div class="files-empty">暂无文件<br>拖拽文件到此处上传</div>';return;}
+    l.innerHTML=fs.map(f=>`<div class="file-item">
+      <span class="file-icon">📄</span>
+      <span class="file-name" title="${h(f.name)}">${h(f.name)}</span>
+      <button class="file-del" onclick="deleteFile('${encodeURIComponent(f.name)}')">×</button>
+    </div>`).join("");
+  }catch(e){l.innerHTML='<div class="files-empty" style="color:var(--red)">加载失败</div>';}
+}
+
+async function uploadFiles(fs){
+  if(!fs?.length)return;
+  const t=targetKB();
+  if(!t)return;
+  const fd=new FormData();
+  for(const f of fs)fd.append("files",f);
+  try{await fetch(`/api/kb/${encodeURIComponent(t)}/upload`,{method:"POST",body:fd});await loadFiles();}catch(e){alert(e.message);}
+}
+
+async function deleteFile(f){
+  if(!confirm(`删除 ${decodeURIComponent(f)} ？`))return;
+  const t=targetKB();
+  try{await fetch(`/api/kb/${encodeURIComponent(t)}/files/${f}`,{method:"DELETE"});await loadFiles();}catch(e){alert(e.message);}
+}
+
+async function sendMessage(){
+  const inp=document.getElementById("chatInput");
+  const msg=inp.value.trim();
+  if(!msg)return;
+  inp.value="";
+  const msgs=document.getElementById("messages");
+  msgs.innerHTML+=`
+    <div class="msg-row user">
+      <div class="msg-avatar user-msg">U</div>
+      <div class="msg-content">
+        <div class="msg-bubble">${h(msg)}</div>
+        <div class="msg-time">${ts()}</div>
+      </div>
+    </div>
+    <div class="thinking-row" id="thinking">
+      <div class="msg-avatar ai">AK</div>
+      <div class="thinking-bubble">
+        <div class="thinking-dots"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div>
+        思考中…
+      </div>
+    </div>`;
+  msgs.parentElement.scrollTop=msgs.parentElement.scrollHeight;
+  try{
+    const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:msg,kbName:currentKB==="all"?null:currentKB})});
+    const d=await r.json();
+    const el=document.getElementById("thinking");
+    if(el)el.remove();
+    let html=`<div class="msg-row ai">
+      <div class="msg-avatar ai">AK</div>
+      <div class="msg-content">
+        <div class="msg-bubble">${d.answer.replace(/\n/g,"<br>")}`;
+    if(d.sources?.length){
+      html+=`<div class="msg-sources">${[...new Set(d.sources.map(s=>s.file))].map(f=>`<a href="/api/kb/${encodeURIComponent(targetKB())}/files/${encodeURIComponent(f)}" target="_blank" class="msg-source">${h(f)}</a>`).join("")}</div>`;
+    }
+    html+=`</div><div class="msg-time">${ts()}</div></div></div>`;
+    msgs.innerHTML+=html;
+  }catch(e){
+    const el=document.getElementById("thinking");
+    if(el)el.remove();
+    msgs.innerHTML+=`<div class="msg-row error">
+      <div class="msg-avatar error-msg">!</div>
+      <div class="msg-content">
+        <div class="msg-bubble">${h(e.message||String(e))}</div>
+        <div class="msg-time">${ts()}</div>
+      </div>
+    </div>`;
+  }
+  msgs.parentElement.scrollTop=msgs.parentElement.scrollHeight;
+}
+
+function h(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+async function loadConfig(){
+  try{const r=await fetch("/api/config");const c=await r.json();
+    document.getElementById("cfgEmbedding").innerHTML=buildCfg("embedding",c.embedding);
+    document.getElementById("cfgReranker").innerHTML=buildCfg("reranker",c.reranker);
+    document.getElementById("cfgVLM").innerHTML=buildCfg("video",c.videoSummarizer||{});
+    document.getElementById("cfgLLM").innerHTML=buildCfg("llm",c.providers?.llm||{});
+  }catch(e){}
+}
+
+function buildCfg(prefix,obj){
+  if(!obj)return'<div style="font-size:12px;color:var(--text3)">未配置</div>';
+  return Object.entries(obj).filter(([k])=>k!=="api"&&typeof obj[k]!=="object").map(([k,v])=>`<div class="config-row"><label class="config-label">${h(k)}</label><input id="cfg_${prefix}_${h(k)}" class="config-input" value="${h(String(v||""))}"></div>`).join("");
+}
+
+async function saveConfig(){
+  const u={};
+  document.querySelectorAll("[id^=cfg_]").forEach(i=>{const parts=i.id.split("_");const p=parts[1],k=parts.slice(2).join("_");if(!u[p])u[p]={};u[p][k]=i.value;});
+  try{await fetch("/api/config",{method:"PUT",body:JSON.stringify(u),headers:{"Content-Type":"application/json"}});alert("保存成功 ✅");}catch(e){alert("保存失败: "+e.message);}
+}
+
+async function loadLogs(){
+  try{const r=await fetch("/api/logs?limit=300");const logs=await r.json();document.getElementById("logContent").textContent=logs.join("\n")||"暂无日志";}catch(e){}
+}
+
+const fd=document.getElementById("fileDrop");
+fd.addEventListener("dragover",e=>{e.preventDefault();fd.classList.add("dragover")});
+fd.addEventListener("dragleave",()=>fd.classList.remove("dragover"));
+fd.addEventListener("drop",e=>{e.preventDefault();fd.classList.remove("dragover");uploadFiles(e.dataTransfer.files)});
+
+loadKBs().then(()=>loadFiles());
 </script>
 </body>
 </html>
