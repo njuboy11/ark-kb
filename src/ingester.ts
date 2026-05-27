@@ -10,7 +10,7 @@ import { extname, basename, join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { exec } from "node:child_process";
 import { KnowledgeStore, KBEntry } from "./store.js";
-import { Embedder, exposeMediaFile } from "./embedder.js";
+import { Embedder, exposeMediaFile, cleanupExposedMedia } from "./embedder.js";
 import { summarizeVideo, summarizeImage } from "./video.js";
 import { dirname } from "node:path";
 import { IngesterConfig } from "./index.js";
@@ -213,6 +213,7 @@ async function extractPdfMinerU(
 
   // Step 0: Expose PDF as a URL (MinerU prefers URL over base64 for large files)
   let pdfUrl: string;
+  let nginxDest: string | null = null; // Track nginx-served file for cleanup
   const serveDir = "/var/www/downloads";
   if (fs.existsSync(serveDir)) {
     const fileName = path.basename(filePath);
@@ -220,6 +221,7 @@ async function extractPdfMinerU(
     fs.copyFileSync(filePath, dest);
     fs.chmodSync(dest, 0o644);
     pdfUrl = `https://home.sfunds.cn:8444/${encodeURIComponent(fileName)}`;
+    nginxDest = dest; // Remember for cleanup
   } else {
     // No nginx — fallback to base64 for small files (<2MB)
     const stat = fs.statSync(filePath);
@@ -341,6 +343,8 @@ async function extractPdfMinerU(
   } finally {
     // Cleanup temp directory
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    // Cleanup nginx-served file (no longer needed after MinerU submited)
+    if (nginxDest) { try { fs.unlinkSync(nginxDest); } catch { /* ignore */ } }
   }
 }
 
@@ -993,6 +997,7 @@ async function processImage(
   console.log(`[Ark KB] Image mm/fallback mode: embedding ${base} directly`);
   const mediaData = await exposeMediaFile(dirname(filePath), basename(filePath));
   const vectors = await embedder.embed([mediaData || basename(filePath)]);
+  await cleanupExposedMedia(basename(filePath)); // Clean up nginx file after embed
 
   return [
     {
@@ -1051,6 +1056,7 @@ async function processVideo(
       const videoData = await exposeMediaFile(dirname(filePath), basename(filePath));
       if (!videoData) throw new Error("Failed to expose video file");
       const vectors = await embedder.embed([videoData]);
+      await cleanupExposedMedia(basename(filePath)); // Clean up nginx file after embed
       return [{
         id: `${base}_0_${now}`,
         chunk_text: `[Video: ${base}]`,

@@ -4,7 +4,9 @@
  * NO in-memory fallback — LanceDB failure throws.
  */
 /**
- * Statistics from a compact operation.
+ * Statistics from an optimize operation.
+ * Note: LanceDB optimize() does compaction + prune + index in one call.
+ * The "index" operation is handled internally; no separate stats returned.
  */
 export interface CompactionStats {
     kbName: string;
@@ -18,9 +20,6 @@ export interface CompactionStats {
     prune?: {
         oldVersionsRemoved: number;
         bytesRemoved: number;
-    };
-    index?: {
-        fragmentsRemapped: number;
     };
 }
 export interface KBEntry {
@@ -108,7 +107,6 @@ export declare class KnowledgeStore {
     compact(options: {
         cleanupDays: number;
         aggressive: boolean;
-        op: "all" | "compact" | "prune" | "index";
         dryRun?: boolean;
     }): Promise<CompactionStats>;
     private _countFragments;

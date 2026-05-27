@@ -110,7 +110,7 @@ const RERANKER_MODEL_PRESETS = {
 // ============================================================================
 // Media file exposure — for multimodal APIs that need HTTPS URL or base64
 // ============================================================================
-import { copyFile, readFile } from "node:fs/promises";
+import { copyFile, readFile, unlink } from "node:fs/promises";
 import { join, basename, resolve } from "node:path";
 import { existsSync, chmodSync } from "node:fs";
 /** Expose a local file as HTTPS URL (if nginx available) or base64. */
@@ -140,6 +140,17 @@ export async function exposeMediaFile(knowledgePath, sourcePath) {
     catch {
         return "";
     }
+}
+/** Clean up a previously exposed nginx-served file after processing is complete. */
+export async function cleanupExposedMedia(sourcePath) {
+    const serveDir = "/var/www/downloads";
+    if (!existsSync(serveDir))
+        return;
+    const dest = join(serveDir, basename(sourcePath));
+    try {
+        await unlink(dest);
+    }
+    catch { /* already cleaned up or never existed */ }
 }
 // ============================================================================
 // Embedder

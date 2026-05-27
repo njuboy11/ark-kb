@@ -7,9 +7,11 @@ import { ResolvedConfig } from "./config.js";
 import { KnowledgeStore, type CompactionStats } from "./store.js";
 import { Ingester } from "./ingester.js";
 export type { KBEntry, KBSearchResult, StoreOptions } from "./store.js";
-/** Options for compact operation. */
+/** Options for compact operation.
+ * cleanupDays: prune versions older than this (0 = skip prune).
+ * aggressive: remove unverified/orphan files.
+ */
 export interface CompactOptions {
-    op: "all" | "compact" | "prune" | "index";
     cleanupDays: number;
     aggressive: boolean;
     dryRun: boolean;

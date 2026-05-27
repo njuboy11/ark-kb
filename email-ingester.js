@@ -410,7 +410,8 @@ export class EmailIngester {
     }
     async _routeAttachment(att, kbNames, kbList) {
         const ext = path.extname(att.filename).toLowerCase();
-        const textExts = [".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp"];
+        const textExts = [".txt", ".md", ".html", ".htm"];
+        const docExts = [".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"];
         const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"];
         const videoExts = [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"];
         if (textExts.includes(ext)) {
@@ -430,6 +431,25 @@ export class EmailIngester {
             }
             catch (err) {
                 console.warn("[EmailIngester] Stage2 text LLM failed:", err.message);
+            }
+        }
+        else if (docExts.includes(ext)) {
+            // Stage 2b: Binary document — use VLM for content routing (not UTF-8 read)
+            if (!this.llmClient.endpoint || !this.llmClient.apiKey)
+                return [];
+            try {
+                const base64 = att.data.toString("base64");
+                const mimeType = this._mimeType(ext);
+                const response = await this.askVLM(`当前可用知识库：${kbList}。请根据文档内容判断最适合放入哪些知识库。如果文档涉及多个领域，可以返回多个知识库。只回复 JSON: {"kbNames": ["知识库名1", "知识库名2"], "reason": "简短说明"}`, base64, mimeType);
+                const parsed = this._parseLLMJson(response);
+                const matched = (parsed?.kbNames || []).filter((n) => kbNames.includes(n));
+                if (matched.length > 0) {
+                    console.log(`[EmailIngester] Stage2 doc routed "${att.filename}" → ${matched.join(", ")}`);
+                    return matched;
+                }
+            }
+            catch (err) {
+                console.warn("[EmailIngester] Stage2 doc VLM failed:", err.message);
             }
         }
         else if (imageExts.includes(ext)) {

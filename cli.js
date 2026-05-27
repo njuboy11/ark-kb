@@ -222,8 +222,6 @@ async function main() {
                 const isDryRun = !!args["dry-run"];
                 const cleanupDays = args["cleanup-days"] ?? 7;
                 const aggressive = !!args.aggressive || cleanupDays < 7;
-                const op = args.op ?? "all";
-                const validOps = ["all", "compact", "prune", "index"];
                 if (!args.kb && !isAll) {
                     console.error("❌ Must specify --kb <name> or --all");
                     process.exit(1);
@@ -232,39 +230,23 @@ async function main() {
                     console.error("❌ Cannot use both --kb and --all");
                     process.exit(1);
                 }
-                if (!validOps.includes(op)) {
-                    console.error(`❌ Invalid --op: ${op}. Must be one of: ${validOps.join(", ")}`);
-                    process.exit(1);
-                }
                 const options = {
-                    op: op,
                     cleanupDays,
                     aggressive,
                     dryRun: isDryRun,
                 };
-                if (aggressive && cleanupDays >= 7 && !args.aggressive) {
-                    // auto-inferred aggressive from cleanupDays < 7
-                }
-                else if (aggressive) {
-                    // user explicitly passed --aggressive
-                }
                 if (isDryRun) {
                     console.log("[Ark KB] DRY RUN — no changes will be made\n");
                 }
                 const label = isAll ? "all KBs" : args.kb;
-                const plural = isAll ? "s" : "";
-                if (op === "all") {
-                    if (cleanupDays < 7) {
-                        console.log(`[Ark KB] ⚠️  cleanup-days=${cleanupDays} < 7-day safety period, enabling aggressive mode\n`);
-                    }
-                    console.log(`[Ark KB] Compacting${isAll ? " all" : ""}: ${label}\n`);
+                if (cleanupDays > 0 && cleanupDays < 7) {
+                    console.log(`[Ark KB] ⚠️  cleanup-days=${cleanupDays} < 7-day safety period, enabling aggressive mode\n`);
                 }
-                else {
-                    console.log(`[Ark KB] Compacting${isAll ? " all" : ""}: ${label} (${op} only)\n`);
-                }
+                console.log(`[Ark KB] Optimizing: ${label} (compact + prune ${cleanupDays}d + index remap)\n`);
                 const totalStart = Date.now();
                 let totalBytes = 0;
                 let totalFrags = 0;
+                let totalVersions = 0;
                 const doCompact = async (kbName) => {
                     const stats = await core.kbManager.compact(kbName, options);
                     if (!stats)
@@ -272,20 +254,19 @@ async function main() {
                     const kb = isAll ? `\u256d\u2500 ${stats.kbName} \u2500\u256e\n` : "";
                     if (kb)
                         console.log(kb);
-                    if (stats.compaction && (options.op === "all" || options.op === "compact")) {
+                    if (stats.compaction) {
                         const c = stats.compaction;
                         console.log(`  \uD83D\uDD04 Compaction:  ${c.fragmentsBefore} \u2192 ${c.fragmentsAfter} fragments, freed ${fmtBytes(c.bytesFreed)}`);
                         totalFrags += c.fragmentsRemoved;
+                        totalBytes += c.bytesFreed;
                     }
-                    if (stats.prune && (options.op === "all" || options.op === "prune")) {
+                    if (stats.prune) {
                         const p = stats.prune;
                         console.log(`  \uD83D\uDDD1 Prune:      ${p.oldVersionsRemoved} versions removed, ${fmtBytes(p.bytesRemoved)} freed`);
+                        totalBytes += p.bytesRemoved;
+                        totalVersions += p.oldVersionsRemoved;
                     }
-                    if (stats.index && (options.op === "all" || options.op === "index")) {
-                        console.log(`  \uD83D\uDCCA Index:      ${stats.index.fragmentsRemapped} fragments remapped`);
-                    }
-                    totalBytes += (stats.compaction?.bytesFreed ?? 0) + (stats.prune?.bytesRemoved ?? 0);
-                    console.log(`\u2705 ${stats.kbName} compacted (${stats.durationMs}ms)`);
+                    console.log(`\u2705 ${stats.kbName} optimized (${stats.durationMs}ms)`);
                 };
                 if (isAll) {
                     const kbs = await core.kbManager.listKBs();

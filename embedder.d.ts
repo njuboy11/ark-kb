@@ -32,6 +32,8 @@ export declare function resolveEmbeddingModalities(api: string, model: string): 
 export declare function resolveRerankerCapabilities(api: string, model: string): string[];
 /** Expose a local file as HTTPS URL (if nginx available) or base64. */
 export declare function exposeMediaFile(knowledgePath: string, sourcePath: string): Promise<string>;
+/** Clean up a previously exposed nginx-served file after processing is complete. */
+export declare function cleanupExposedMedia(sourcePath: string): Promise<void>;
 export declare class Embedder {
     private config;
     constructor(config: EmbedderConfig);

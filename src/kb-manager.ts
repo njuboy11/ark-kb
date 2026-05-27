@@ -14,9 +14,11 @@ import { Embedder } from "./embedder.js";
 // Re-export types for consumers
 export type { KBEntry, KBSearchResult, StoreOptions } from "./store.js";
 
-/** Options for compact operation. */
+/** Options for compact operation.
+ * cleanupDays: prune versions older than this (0 = skip prune).
+ * aggressive: remove unverified/orphan files.
+ */
 export interface CompactOptions {
-  op: "all" | "compact" | "prune" | "index";
   cleanupDays: number;
   aggressive: boolean;
   dryRun: boolean;
@@ -351,7 +353,6 @@ export class KBManager {
     const stats = await store.compact({
       cleanupDays: options.cleanupDays,
       aggressive: options.aggressive,
-      op: options.op,
       dryRun: options.dryRun,
     });
     return stats;

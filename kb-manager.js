@@ -240,7 +240,6 @@ export class KBManager {
         const stats = await store.compact({
             cleanupDays: options.cleanupDays,
             aggressive: options.aggressive,
-            op: options.op,
             dryRun: options.dryRun,
         });
         return stats;

@@ -474,7 +474,6 @@ export class ArkKB {
             for (const kbName of kbNames) {
                 try {
                     const stats = await this.kbManager.compact(kbName, {
-                        op: "all",
                         cleanupDays: retentionDays,
                         aggressive: retentionDays < 7,
                         dryRun: false,
