@@ -10,6 +10,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
+import type { ResolvedProvider } from "./providers/config.js";
+import { minimaxVLM, anthropicVLM, openaiVLM } from "./providers/vlm/index.js";
+import { detectProtocol } from "./providers/detector.js";
 
 // ============================================================================
 // Types
@@ -369,4 +372,23 @@ async function callMiniMaxVLM(
     throw new Error(`MiniMax VLM failed: ${data.base_resp?.status_msg ?? "unknown"}`);
   }
   return data.content ?? "";
+}
+
+// ---- Provider-based VLM wrapper ----
+
+export async function describeImageWithProvider(
+  provider: ResolvedProvider,
+  imageBase64: string,
+  prompt: string = "请详细描述这张图片的内容",
+): Promise<string> {
+  const protocol = detectProtocol(provider.url);
+  switch (protocol) {
+    case "minimax-vlm":
+      return (await minimaxVLM(provider, imageBase64, prompt)).text;
+    case "anthropic":
+      return (await anthropicVLM(provider, imageBase64, prompt)).text;
+    case "openai":
+    default:
+      return (await openaiVLM(provider, imageBase64, prompt)).text;
+  }
 }

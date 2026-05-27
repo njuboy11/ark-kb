@@ -10,6 +10,7 @@ export interface EmbedderConfig {
     model: string;
     dimensions: number;
     batchSize: number;
+    providers?: import("./providers/config.js").ResolvedProvider;
 }
 export interface EmbedResult {
     embeddings: number[][];
@@ -22,17 +23,13 @@ export interface EmbedResult {
 /** Get the modalities supported by an embedding model. Defaults to ["text"]. */
 export declare function getModelCapabilities(model: string): string[];
 /** Get the modalities supported by a reranker model. Defaults to ["text"]. */
-export declare function getRerankerCapabilities(model: string): string[];
-export declare function resolveEmbeddingBatchSize(api: string, model: string): number;
-export declare function resolveEmbeddingDimensions(api: string, model: string, userDim?: number): number;
-export declare function resolveEmbeddingEndpoint(api: string, model: string, userEndpoint?: string): string;
-/** Supported modalities from model registry, defaults to text-only */
-export declare function resolveEmbeddingModalities(api: string, model: string): string[];
-/** Resolve reranker capabilities by API + model name */
-export declare function resolveRerankerCapabilities(api: string, model: string): string[];
-/** Expose a local file as HTTPS URL (if nginx available) or base64. */
+export declare function getRerankerCapabilities(_model: string): string[];
+export declare function resolveRerankerCapabilities(_api: string, _model: string): string[];
+export declare function resolveEmbeddingEndpoint(api: string, _model: string, userEndpoint?: string): string;
+export declare function resolveEmbeddingBatchSize(_api: string, _model: string): number;
+export declare function resolveEmbeddingDimensions(_api: string, _model: string, userDim?: number): number;
+export declare function resolveEmbeddingModalities(_api: string, _model: string): string[];
 export declare function exposeMediaFile(knowledgePath: string, sourcePath: string): Promise<string>;
-/** Clean up a previously exposed nginx-served file after processing is complete. */
 export declare function cleanupExposedMedia(sourcePath: string): Promise<void>;
 export declare class Embedder {
     private config;

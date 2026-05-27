@@ -11,9 +11,11 @@ import { createHash } from "node:crypto";
 import { exec } from "node:child_process";
 import { KnowledgeStore, KBEntry } from "./store.js";
 import { Embedder, exposeMediaFile, cleanupExposedMedia } from "./embedder.js";
-import { summarizeVideo, summarizeImage } from "./video.js";
+import { summarizeVideo, summarizeImage, describeImageWithProvider } from "./video.js";
 import { dirname } from "node:path";
 import { IngesterConfig } from "./index.js";
+import { mineruParse } from "./providers/pdf/mineru.js";
+import type { ResolvedProvider } from "./providers/config.js";
 
 // ============================================================================
 // File type detection
@@ -957,7 +959,11 @@ async function processText(
 async function processImage(
   filePath: string,
   embedder: Embedder,
-  opts?: { imageConfig?: { endpoint: string; apiKey: string; timeoutMs: number }; method?: "text" | "multimodal" },
+  opts?: {
+    imageConfig?: { endpoint: string; apiKey: string; timeoutMs: number };
+    method?: "text" | "multimodal";
+    vlmProvider?: import("./providers/config.js").ResolvedProvider | null;
+  },
 ): Promise<KBEntry[]> {
   const base = basename(filePath);
   const fileHash = await hashFile(filePath);
@@ -965,13 +971,21 @@ async function processImage(
   const method = opts?.method ?? "text";
 
   // Text mode: VLM summary → text embedding
-  if (method === "text" && opts?.imageConfig?.apiKey) {
+  if (method === "text" && (opts?.imageConfig?.apiKey || opts?.vlmProvider)) {
     console.log(`[Ark KB] Image text mode: summarizing ${base} via VLM…`);
     try {
-      const summary = await summarizeImage(filePath, {
-        apiKey: opts.imageConfig.apiKey,
-        endpoint: opts.imageConfig.endpoint,
-        timeoutMs: opts.imageConfig.timeoutMs ?? 60000});
+      let summary: string;
+      if (opts.vlmProvider) {
+        const { readFile } = await import("node:fs/promises");
+        const imgBuf = await readFile(filePath);
+        const imgB64 = imgBuf.toString("base64");
+        summary = await describeImageWithProvider(opts.vlmProvider, imgB64);
+      } else {
+        summary = await summarizeImage(filePath, {
+          apiKey: opts.imageConfig!.apiKey,
+          endpoint: opts.imageConfig!.endpoint,
+          timeoutMs: opts.imageConfig!.timeoutMs ?? 60000});
+      }
       const chunks = chunkText(summary, { maxTokens: 400, overlapTokens: 50, strategy: "paragraph" });
       if (chunks.length === 0) chunks.push(summary);
       const vectors = await embedder.embed(chunks);
@@ -1186,6 +1200,7 @@ export class Ingester {
   private imageConfig = { endpoint: "", apiKey: "", timeoutMs: 60_000 };
   private imageMethod: "text" | "multimodal" = "text";
   private videoMethod: "text" | "multimodal" = "text";
+  private vlmProvider: import("./providers/config.js").ResolvedProvider | null = null;
 
   private knowledgePath: string = "";
 
@@ -1212,6 +1227,11 @@ export class Ingester {
       this.imageMethod = modes.imageMethod ?? "text";
       this.videoMethod = modes.videoMethod ?? "text";
     }
+  }
+
+  /** Set VLM provider for summarization (new multi-provider system). */
+  setVlmProvider(p: import("./providers/config.js").ResolvedProvider | null) {
+    this.vlmProvider = p;
   }
 
   /**
@@ -1284,7 +1304,8 @@ export class Ingester {
             case "image":
               entries = await processImage(filePath, this.embedder, {
                 imageConfig: this.imageConfig,
-                method: this.imageMethod});
+                method: this.imageMethod,
+                vlmProvider: this.vlmProvider,});
               break;
             case "video":
               entries = await processVideo(filePath, this.embedder, this.videoConfig, this.videoMethod);

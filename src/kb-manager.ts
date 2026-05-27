@@ -119,6 +119,7 @@ export class KBManager {
   private ingesters: Map<string, Ingester> = new Map();
   private _videoConfig: { endpoint: string; apiKey: string; maxFrames: number; timeoutMs: number };
   private _imageConfig: { endpoint: string; apiKey: string; timeoutMs: number };
+  private _vlmProvider: import("./providers/config.js").ResolvedProvider | null = null;
   private _embeddingMethod: { image: "text" | "multimodal"; video: "text" | "multimodal" };
 
   private fullConfig?: ResolvedConfig;
@@ -149,6 +150,7 @@ export class KBManager {
       apiKey: this.fullConfig?.imageSummarizer?.apiKey ?? opts.imageConfig?.apiKey ?? "",
       timeoutMs: opts.imageConfig?.timeoutMs ?? 60_000,
     };
+    this._vlmProvider = this.fullConfig?.providers?.vlm ?? null;
     this._embeddingMethod = {
       image: this.fullConfig?.embedding?.method?.image ?? opts.embeddingMethod?.image ?? "text",
       video: this.fullConfig?.embedding?.method?.video ?? opts.embeddingMethod?.video ?? "text",
@@ -229,7 +231,7 @@ export class KBManager {
     const pdfParser: ResolvedConfig["pdfParser"] = this.embedderConfig.pdfParser
       ? { ...this.embedderConfig.pdfParser, model: this.embedderConfig.pdfParser.model ?? "", params: this.embedderConfig.pdfParser.params ?? {} }
       : { api: "none", endpoint: "", apiKey: "", model: "", params: {} };
-    return new Ingester(
+    const ingester = new Ingester(
       store,
       embedder,
       { chunking: this.embedderConfig.chunking, pdfParser },
@@ -238,6 +240,8 @@ export class KBManager {
       { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs },
       { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video },
     );
+    ingester.setVlmProvider(this._vlmProvider);
+    return ingester;
   }
 
   // -------------------------------------------------------------------------

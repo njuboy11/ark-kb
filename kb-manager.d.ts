@@ -117,6 +117,7 @@ export declare class KBManager {
     private ingesters;
     private _videoConfig;
     private _imageConfig;
+    private _vlmProvider;
     private _embeddingMethod;
     private fullConfig?;
     constructor(opts: MultiKBOptions);

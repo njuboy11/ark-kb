@@ -3,6 +3,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { resolveEmbeddingBatchSize, resolveEmbeddingDimensions, resolveEmbeddingEndpoint, resolveEmbeddingModalities, resolveRerankerCapabilities } from "./embedder.js";
+import { setProviderConfig, getProviderConfig, resolveProviderWithModel } from "./providers/config.js";
 export const DEFAULTS = {
     storage: {
         dbPath: "~/.ark-kb/lancedb",
@@ -426,6 +427,55 @@ export function resolveConfig(raw) {
             retentionDays: raw.compact?.retentionDays ?? DEFAULTS.compact.retentionDays,
             intervalDays: raw.compact?.intervalDays ?? DEFAULTS.compact.intervalDays,
         },
+        providers: resolveProviders(raw),
     };
+}
+function resolveProviders(raw) {
+    if (!raw.providers)
+        return undefined;
+    try {
+        // Load providers directly from inline config
+        setProviderConfig(raw.providers);
+        const cfg = getProviderConfig();
+        if (!cfg?.providers || Object.keys(cfg.providers).length === 0)
+            return undefined;
+        const result = {};
+        const entries = Object.entries(cfg.providers);
+        // Embedding: find first provider with embedding-compatible URL
+        for (const [name, p] of entries) {
+            const url = p.url.toLowerCase();
+            const isEmbedding = !url.includes("rerank") && !url.includes("vlm") &&
+                !url.includes("coding_plan") && !url.includes("mineru") &&
+                !url.includes("anthropic") && !url.includes("messages");
+            if (isEmbedding && !result.embedding) {
+                result.embedding = resolveProviderWithModel(name);
+            }
+        }
+        // Reranker
+        for (const [name, p] of entries) {
+            if (p.url.includes("rerank") && !result.reranker) {
+                result.reranker = resolveProviderWithModel(name);
+            }
+        }
+        // PDF Parser (MinerU)
+        for (const [name, p] of entries) {
+            if (p.url.includes("mineru") && !result.pdfParser) {
+                result.pdfParser = resolveProviderWithModel(name);
+            }
+        }
+        // VLM
+        for (const [name, p] of entries) {
+            const url = p.url.toLowerCase();
+            if ((url.includes("vlm") || url.includes("coding_plan")) && !result.vlm) {
+                result.vlm = resolveProviderWithModel(name);
+            }
+        }
+        result.videoSummarizer = result.vlm;
+        result.imageSummarizer = result.vlm;
+        return result;
+    }
+    catch {
+        return undefined;
+    }
 }
 //# sourceMappingURL=config.js.map

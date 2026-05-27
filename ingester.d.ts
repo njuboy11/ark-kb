@@ -35,6 +35,7 @@ export declare class Ingester {
     private imageConfig;
     private imageMethod;
     private videoMethod;
+    private vlmProvider;
     private knowledgePath;
     /** Per-file mutex: prevents TOCTOU races when the same file is ingested concurrently. */
     private _ingestLocks;
@@ -52,6 +53,8 @@ export declare class Ingester {
         imageMethod?: "text" | "multimodal";
         videoMethod?: "text" | "multimodal";
     });
+    /** Set VLM provider for summarization (new multi-provider system). */
+    setVlmProvider(p: import("./providers/config.js").ResolvedProvider | null): void;
     /**
      * Ingest a single file: detect type → hash → chunk → embed → upsert.
      * Skips files with no changes (hash comparison).

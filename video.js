@@ -9,6 +9,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
+import { minimaxVLM, anthropicVLM, openaiVLM } from "./providers/vlm/index.js";
+import { detectProtocol } from "./providers/detector.js";
 // ============================================================================
 // Public API
 // ============================================================================
@@ -271,5 +273,18 @@ async function callMiniMaxVLM(base64Image, opts) {
         throw new Error(`MiniMax VLM failed: ${data.base_resp?.status_msg ?? "unknown"}`);
     }
     return data.content ?? "";
+}
+// ---- Provider-based VLM wrapper ----
+export async function describeImageWithProvider(provider, imageBase64, prompt = "请详细描述这张图片的内容") {
+    const protocol = detectProtocol(provider.url);
+    switch (protocol) {
+        case "minimax-vlm":
+            return (await minimaxVLM(provider, imageBase64, prompt)).text;
+        case "anthropic":
+            return (await anthropicVLM(provider, imageBase64, prompt)).text;
+        case "openai":
+        default:
+            return (await openaiVLM(provider, imageBase64, prompt)).text;
+    }
 }
 //# sourceMappingURL=video.js.map

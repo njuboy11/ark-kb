@@ -13,6 +13,17 @@ import { EmailIngester } from "./email-ingester.js";
 import { resolveConfig, loadConfigFromFile, validateConfig, } from "./config.js";
 import { registerKBTools } from "./tools.js";
 import { Searcher } from "./searcher.js";
+import { startWebServer } from "./web/server.js";
+// Log capture for Web UI
+export const webLogLines = [];
+const origLog = console.log;
+console.log = (...args) => {
+    const line = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+    webLogLines.push(new Date().toISOString() + " " + line);
+    if (webLogLines.length > 1000)
+        webLogLines.shift();
+    origLog.apply(console, args);
+};
 /**
  * Safely parse images field whether it's already an array or a JSON string.
  * Searcher.search() already parses images to array, so upstream callers
@@ -120,6 +131,7 @@ export class ArkKB {
             model: this.config.embedding.model,
             dimensions: this.config.embedding.dimensions,
             batchSize: this.config.embedding.batchSize,
+            providers: this.config.providers?.embedding,
         });
         this.watcher = new FileWatcher({
             enabled: this.config.watcher.enabled,
@@ -146,6 +158,7 @@ export class ArkKB {
                     image: this.config.embedding.method.image,
                     video: this.config.embedding.method.video,
                 },
+                providers: this.config.providers,
             });
         }
         finally {
@@ -202,6 +215,17 @@ export class ArkKB {
         // Initialize email auto-ingester (api param only used in plugin mode)
         await this._initEmailIngester(api);
         console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
+        // Start Web UI server
+        try {
+            startWebServer({
+                kbManager: this.kbManager,
+                config: this.config,
+                searcher: this
+            });
+        }
+        catch (e) {
+            console.warn(`[Ark KB] Web UI server failed to start: ${e.message}`);
+        }
         // Start auto-compact scheduler
         this._startAutoCompact();
         this._initialized = true;
@@ -229,6 +253,7 @@ export class ArkKB {
                 search: this.config.search,
                 reranker: this.config.reranker,
                 method: methodConfig,
+                providers: this.config.providers,
             });
             return await searcher.search({
                 query,
@@ -245,6 +270,7 @@ export class ArkKB {
                 search: this.config.search,
                 reranker: this.config.reranker,
                 method: methodConfig,
+                providers: this.config.providers,
             });
             // Searcher returns SearchResult[] — transform to { entry, score }[] for KBManager
             const hits = await s.search({ query: q, topK, resultCount: options?.resultCount, fileType: options?.fileType });

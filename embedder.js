@@ -4,6 +4,13 @@
  * Batch embedding with configurable batch size and exponential backoff retries.
  */
 // ============================================================================
+// Types
+// ============================================================================
+import { copyFile, readFile, unlink } from "node:fs/promises";
+import { existsSync, chmodSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { embed as providerEmbed } from "./providers/embedding/index.js";
+// ============================================================================
 // Model capabilities registry
 // ============================================================================
 /** Supported input modalities per embedding model */
@@ -28,101 +35,31 @@ const RERANKER_MODEL_CAPABILITIES = {
     "Qwen/Qwen3-VL-Reranker-8B": ["text", "image"],
 };
 /** Get the modalities supported by a reranker model. Defaults to ["text"]. */
-export function getRerankerCapabilities(model) {
-    return RERANKER_MODEL_CAPABILITIES[model] ?? ["text"];
+export function getRerankerCapabilities(_model) {
+    return ["text"];
 }
-const EMBEDDING_MODEL_PRESETS = {
-    dashscope: {
-        "text-embedding-v4": { batchSize: 10, endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings", dimensions: 2048, modalities: ["text"] },
-        "text-embedding-v3": { batchSize: 10, dimensions: 2048, modalities: ["text"] },
-        "text-embedding-v2": { batchSize: 10, dimensions: 1536, modalities: ["text"] },
-    },
-    siliconflow: {
-        "Qwen/Qwen3-VL-Embedding-8B": { batchSize: 16, endpoint: "https://api.siliconflow.cn/v1/embeddings", dimensions: 4096, modalities: ["text", "image"] },
-    },
-    openai: {
-        "text-embedding-3-large": { batchSize: 2048, dimensions: 3072, modalities: ["text"] },
-        "text-embedding-3-small": { batchSize: 2048, dimensions: 1536, modalities: ["text"] },
-        "text-embedding-ada-002": { batchSize: 2048, dimensions: 1536, modalities: ["text"] },
-    },
-};
-function getPreset(api, model) {
-    return EMBEDDING_MODEL_PRESETS[api]?.[model];
+export function resolveRerankerCapabilities(_api, _model) {
+    return ["text"];
 }
-export function resolveEmbeddingBatchSize(api, model) {
-    return getPreset(api, model)?.batchSize ?? 16;
+export function resolveEmbeddingEndpoint(api, _model, userEndpoint) {
+    return userEndpoint || "";
 }
-export function resolveEmbeddingDimensions(api, model, userDim) {
-    if (userDim)
-        return userDim;
-    return getPreset(api, model)?.dimensions ?? 2048;
+export function resolveEmbeddingBatchSize(_api, _model) {
+    return 16;
 }
-export function resolveEmbeddingEndpoint(api, model, userEndpoint) {
-    if (userEndpoint)
-        return userEndpoint;
-    return getPreset(api, model)?.endpoint ?? "https://api.siliconflow.cn/v1/embeddings";
+export function resolveEmbeddingDimensions(_api, _model, userDim) {
+    return userDim ?? 4096;
 }
-/** Supported modalities from model registry, defaults to text-only */
-export function resolveEmbeddingModalities(api, model) {
-    return getPreset(api, model)?.modalities ?? ["text"];
+export function resolveEmbeddingModalities(_api, _model) {
+    return ["text"];
 }
-/** Resolve reranker capabilities by API + model name */
-export function resolveRerankerCapabilities(api, model) {
-    const apiLower = api.toLowerCase();
-    if (apiLower === "siliconflow") {
-        return RERANKER_MODEL_PRESETS.siliconflow?.[model]?.modalities ?? getRerankerCapabilities(model);
-    }
-    if (apiLower === "cohere") {
-        return RERANKER_MODEL_PRESETS.cohere?.[model]?.modalities ?? getRerankerCapabilities(model);
-    }
-    return getRerankerCapabilities(model);
-}
-const RERANKER_MODEL_PRESETS = {
-    siliconflow: {
-        "BAAI/bge-reranker-v2-m3": {
-            endpoint: "https://api.siliconflow.cn/v1/rerank",
-            model: "BAAI/bge-reranker-v2-m3",
-            minScore: 0.35,
-            modalities: ["text"],
-        },
-        "Qwen/Qwen3-Reranker-8B": {
-            endpoint: "https://api.siliconflow.cn/v1/rerank",
-            model: "Qwen/Qwen3-Reranker-8B",
-            minScore: 0.1,
-            modalities: ["text"],
-        },
-        "Qwen/Qwen3-VL-Reranker-8B": {
-            endpoint: "https://api.siliconflow.cn/v1/rerank",
-            model: "Qwen/Qwen3-VL-Reranker-8B",
-            minScore: 0.1,
-            modalities: ["text", "image"],
-        },
-    },
-    cohere: {
-        "rerank-multilingual-v3.0": {
-            endpoint: "https://api.cohere.ai/v1/rerank",
-            model: "rerank-multilingual-v3.0",
-            minScore: 0.35,
-            modalities: ["text"],
-        },
-    },
-};
-// ============================================================================
-// Media file exposure — for multimodal APIs that need HTTPS URL or base64
-// ============================================================================
-import { copyFile, readFile, unlink } from "node:fs/promises";
-import { join, basename, resolve } from "node:path";
-import { existsSync, chmodSync } from "node:fs";
-/** Expose a local file as HTTPS URL (if nginx available) or base64. */
 export async function exposeMediaFile(knowledgePath, sourcePath) {
     const serveDir = "/var/www/downloads";
     const baseName = basename(sourcePath);
-    // Safely resolve sourcePath within knowledgePath to prevent path traversal
     const safePath = resolve(knowledgePath, sourcePath);
     if (!safePath.startsWith(resolve(knowledgePath))) {
-        return ""; // Path traversal detected — reject
+        return "";
     }
-    // If nginx serve dir exists → copy + HTTPS URL (best performance)
     if (existsSync(serveDir)) {
         try {
             const dest = join(serveDir, baseName);
@@ -130,9 +67,8 @@ export async function exposeMediaFile(knowledgePath, sourcePath) {
             chmodSync(dest, 0o644);
             return `https://home.sfunds.cn:8444/${encodeURIComponent(baseName)}`;
         }
-        catch { /* fall through to base64 */ }
+        catch { }
     }
-    // Fallback: base64 encode (works everywhere, no server needed)
     try {
         const fileBuffer = await readFile(safePath);
         return fileBuffer.toString("base64");
@@ -141,7 +77,6 @@ export async function exposeMediaFile(knowledgePath, sourcePath) {
         return "";
     }
 }
-/** Clean up a previously exposed nginx-served file after processing is complete. */
 export async function cleanupExposedMedia(sourcePath) {
     const serveDir = "/var/www/downloads";
     if (!existsSync(serveDir))
@@ -150,11 +85,8 @@ export async function cleanupExposedMedia(sourcePath) {
     try {
         await unlink(dest);
     }
-    catch { /* already cleaned up or never existed */ }
+    catch { }
 }
-// ============================================================================
-// Embedder
-// ============================================================================
 export class Embedder {
     config;
     constructor(config) {
@@ -194,6 +126,20 @@ export class Embedder {
         }
     }
     async embedBatch(inputs) {
+        // Provider-based embedding (new system)
+        if (this.config.providers) {
+            try {
+                const result = await providerEmbed(this.config.providers, inputs);
+                return {
+                    embeddings: result.vectors,
+                    model: result.model,
+                };
+            }
+            catch (err) {
+                console.warn("[Ark KB] Provider embed failed: " + err.message + ", falling back to legacy");
+            }
+        }
+        // Legacy embedding (hardcoded APIs)
         const { api, endpoint, apiKey, model, dimensions } = this.config;
         const headers = { "Content-Type": "application/json" };
         let body;

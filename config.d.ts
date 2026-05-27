@@ -87,6 +87,8 @@ export interface ArkKBConfig {
         scanIntervalMs?: number;
         maxRetries?: number;
     };
+    /** Multi-provider config — supports OpenAI/Anthropic/Cohere/Google/MiniMax/MinerU */
+    providers?: Record<string, any>;
 }
 export interface ResolvedConfig {
     knowledgePath: string;
@@ -167,6 +169,15 @@ export interface ResolvedConfig {
     compact: {
         retentionDays: number;
         intervalDays: number;
+    };
+    /** Resolved provider instances (from models.json / providers config) */
+    providers?: {
+        embedding?: import("./providers/config.js").ResolvedProvider;
+        reranker?: import("./providers/config.js").ResolvedProvider;
+        pdfParser?: import("./providers/config.js").ResolvedProvider;
+        vlm?: import("./providers/config.js").ResolvedProvider;
+        videoSummarizer?: import("./providers/config.js").ResolvedProvider;
+        imageSummarizer?: import("./providers/config.js").ResolvedProvider;
     };
 }
 export declare const DEFAULTS: Omit<ResolvedConfig, "knowledgePath">;

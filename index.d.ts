@@ -10,6 +10,7 @@ import { FileWatcher } from "./watcher.js";
 import { KBManager, KBInfo } from "./kb-manager.js";
 import { ArkKBConfig, ResolvedConfig } from "./config.js";
 import { Searcher } from "./searcher.js";
+export declare const webLogLines: string[];
 export declare class ArkKB {
     config: ResolvedConfig;
     /** Primary multi-KB driver */
@@ -342,6 +343,7 @@ export interface SearcherConfig {
         image: "text" | "multimodal";
         video: "text" | "multimodal";
     };
+    providers?: ResolvedConfig["providers"];
 }
 export interface WatcherConfig {
     enabled: boolean;

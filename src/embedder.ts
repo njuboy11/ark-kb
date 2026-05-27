@@ -8,6 +8,11 @@
 // Types
 // ============================================================================
 
+import { copyFile, readFile, unlink } from "node:fs/promises";
+import { existsSync, chmodSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { embed as providerEmbed } from "./providers/embedding/index.js";
+
 export interface EmbedderConfig {
   api: string;       // "dashscope" | "siliconflow" | "openai" | "custom"
   endpoint: string;
@@ -15,6 +20,7 @@ export interface EmbedderConfig {
   model: string;
   dimensions: number;
   batchSize: number;
+  providers?: import("./providers/config.js").ResolvedProvider;
 }
 
 export interface EmbedResult {
@@ -52,126 +58,30 @@ const RERANKER_MODEL_CAPABILITIES: Record<string, string[]> = {
 };
 
 /** Get the modalities supported by a reranker model. Defaults to ["text"]. */
-export function getRerankerCapabilities(model: string): string[] {
-  return RERANKER_MODEL_CAPABILITIES[model] ?? ["text"];
+export function getRerankerCapabilities(_model: string): string[] {
+  return ["text"];
 }
 
-// ============================================================================
-// Model registry — keyed by provider + model name
-// Provider is auto-detected from endpoint URL.  Same model name on different
-// providers maps to different presets.
-// ============================================================================
-
-interface ModelPreset {
-  batchSize: number;
-  endpoint?: string;
-  dimensions?: number;
-  /** Supported input modalities: text, image, video */
-  modalities: string[];
+export function resolveRerankerCapabilities(_api: string, _model: string): string[] {
+  return ["text"];
 }
 
-type ProviderPresets = Record<string, ModelPreset>;
-
-const EMBEDDING_MODEL_PRESETS: Record<string, ProviderPresets> = {
-  dashscope: {
-    "text-embedding-v4":   { batchSize: 10, endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings", dimensions: 2048, modalities: ["text"] },
-    "text-embedding-v3":   { batchSize: 10, dimensions: 2048, modalities: ["text"] },
-    "text-embedding-v2":   { batchSize: 10, dimensions: 1536, modalities: ["text"] },
-  },
-  siliconflow: {
-    "Qwen/Qwen3-VL-Embedding-8B": { batchSize: 16, endpoint: "https://api.siliconflow.cn/v1/embeddings", dimensions: 4096, modalities: ["text", "image"] },
-  },
-  openai: {
-    "text-embedding-3-large": { batchSize: 2048, dimensions: 3072, modalities: ["text"] },
-    "text-embedding-3-small": { batchSize: 2048, dimensions: 1536, modalities: ["text"] },
-    "text-embedding-ada-002": { batchSize: 2048, dimensions: 1536, modalities: ["text"] },
-  },
-};
-
-function getPreset(api: string, model: string): ModelPreset | undefined {
-  return EMBEDDING_MODEL_PRESETS[api]?.[model];
+export function resolveEmbeddingEndpoint(api: string, _model: string, userEndpoint?: string): string {
+  return userEndpoint || "";
 }
 
-export function resolveEmbeddingBatchSize(api: string, model: string): number {
-  return getPreset(api, model)?.batchSize ?? 16;
+export function resolveEmbeddingBatchSize(_api: string, _model: string): number {
+  return 16;
 }
 
-export function resolveEmbeddingDimensions(api: string, model: string, userDim?: number): number {
-  if (userDim) return userDim;
-  return getPreset(api, model)?.dimensions ?? 2048;
+export function resolveEmbeddingDimensions(_api: string, _model: string, userDim?: number): number {
+  return userDim ?? 4096;
 }
 
-export function resolveEmbeddingEndpoint(api: string, model: string, userEndpoint?: string): string {
-  if (userEndpoint) return userEndpoint;
-  return getPreset(api, model)?.endpoint ?? "https://api.siliconflow.cn/v1/embeddings";
+export function resolveEmbeddingModalities(_api: string, _model: string): string[] {
+  return ["text"];
 }
 
-/** Supported modalities from model registry, defaults to text-only */
-export function resolveEmbeddingModalities(api: string, model: string): string[] {
-  return getPreset(api, model)?.modalities ?? ["text"];
-}
-
-/** Resolve reranker capabilities by API + model name */
-export function resolveRerankerCapabilities(api: string, model: string): string[] {
-  const apiLower = api.toLowerCase();
-  if (apiLower === "siliconflow") {
-    return RERANKER_MODEL_PRESETS.siliconflow?.[model]?.modalities ?? getRerankerCapabilities(model);
-  }
-  if (apiLower === "cohere") {
-    return RERANKER_MODEL_PRESETS.cohere?.[model]?.modalities ?? getRerankerCapabilities(model);
-  }
-  return getRerankerCapabilities(model);
-}
-
-// Reranker preset registry
-interface RerankerPreset {
-  endpoint: string;
-  model: string;
-  /** Default minScore for this model (score distributions differ per model) */
-  minScore?: number;
-  modalities?: string[];
-}
-
-const RERANKER_MODEL_PRESETS: Record<string, Record<string, RerankerPreset>> = {
-  siliconflow: {
-    "BAAI/bge-reranker-v2-m3": {
-      endpoint: "https://api.siliconflow.cn/v1/rerank",
-      model: "BAAI/bge-reranker-v2-m3",
-      minScore: 0.35,
-      modalities: ["text"],
-    },
-    "Qwen/Qwen3-Reranker-8B": {
-      endpoint: "https://api.siliconflow.cn/v1/rerank",
-      model: "Qwen/Qwen3-Reranker-8B",
-      minScore: 0.1,
-      modalities: ["text"],
-    },
-    "Qwen/Qwen3-VL-Reranker-8B": {
-      endpoint: "https://api.siliconflow.cn/v1/rerank",
-      model: "Qwen/Qwen3-VL-Reranker-8B",
-      minScore: 0.1,
-      modalities: ["text", "image"],
-    },
-  },
-  cohere: {
-    "rerank-multilingual-v3.0": {
-      endpoint: "https://api.cohere.ai/v1/rerank",
-      model: "rerank-multilingual-v3.0",
-      minScore: 0.35,
-      modalities: ["text"],
-    },
-  },
-};
-
-// ============================================================================
-// Media file exposure — for multimodal APIs that need HTTPS URL or base64
-// ============================================================================
-
-import { copyFile, readFile, unlink } from "node:fs/promises";
-import { join, basename, resolve } from "node:path";
-import { existsSync, chmodSync } from "node:fs";
-
-/** Expose a local file as HTTPS URL (if nginx available) or base64. */
 export async function exposeMediaFile(
   knowledgePath: string,
   sourcePath: string,
@@ -179,23 +89,20 @@ export async function exposeMediaFile(
   const serveDir = "/var/www/downloads";
   const baseName = basename(sourcePath);
 
-  // Safely resolve sourcePath within knowledgePath to prevent path traversal
   const safePath = resolve(knowledgePath, sourcePath);
   if (!safePath.startsWith(resolve(knowledgePath))) {
-    return ""; // Path traversal detected — reject
+    return "";
   }
 
-  // If nginx serve dir exists → copy + HTTPS URL (best performance)
   if (existsSync(serveDir)) {
     try {
       const dest = join(serveDir, baseName);
       await copyFile(safePath, dest);
       chmodSync(dest, 0o644);
       return `https://home.sfunds.cn:8444/${encodeURIComponent(baseName)}`;
-    } catch { /* fall through to base64 */ }
+    } catch {}
   }
 
-  // Fallback: base64 encode (works everywhere, no server needed)
   try {
     const fileBuffer = await readFile(safePath);
     return fileBuffer.toString("base64");
@@ -204,17 +111,12 @@ export async function exposeMediaFile(
   }
 }
 
-/** Clean up a previously exposed nginx-served file after processing is complete. */
 export async function cleanupExposedMedia(sourcePath: string): Promise<void> {
   const serveDir = "/var/www/downloads";
   if (!existsSync(serveDir)) return;
   const dest = join(serveDir, basename(sourcePath));
-  try { await unlink(dest); } catch { /* already cleaned up or never existed */ }
+  try { await unlink(dest); } catch {}
 }
-
-// ============================================================================
-// Embedder
-// ============================================================================
 
 export class Embedder {
   private config: EmbedderConfig;
@@ -258,6 +160,20 @@ export class Embedder {
   }
 
   private async embedBatch(inputs: string[]): Promise<EmbedResult> {
+    // Provider-based embedding (new system)
+    if (this.config.providers) {
+      try {
+        const result = await providerEmbed(this.config.providers, inputs);
+        return {
+          embeddings: result.vectors,
+          model: result.model,
+        };
+      } catch (err: any) {
+        console.warn("[Ark KB] Provider embed failed: " + err.message + ", falling back to legacy");
+      }
+    }
+
+    // Legacy embedding (hardcoded APIs)
     const { api, endpoint, apiKey, model, dimensions } = this.config;
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };

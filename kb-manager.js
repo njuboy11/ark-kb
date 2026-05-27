@@ -41,6 +41,7 @@ export class KBManager {
     ingesters = new Map();
     _videoConfig;
     _imageConfig;
+    _vlmProvider = null;
     _embeddingMethod;
     fullConfig;
     constructor(opts) {
@@ -69,6 +70,7 @@ export class KBManager {
             apiKey: this.fullConfig?.imageSummarizer?.apiKey ?? opts.imageConfig?.apiKey ?? "",
             timeoutMs: opts.imageConfig?.timeoutMs ?? 60_000,
         };
+        this._vlmProvider = this.fullConfig?.providers?.vlm ?? null;
         this._embeddingMethod = {
             image: this.fullConfig?.embedding?.method?.image ?? opts.embeddingMethod?.image ?? "text",
             video: this.fullConfig?.embedding?.method?.video ?? opts.embeddingMethod?.video ?? "text",
@@ -136,7 +138,9 @@ export class KBManager {
         const pdfParser = this.embedderConfig.pdfParser
             ? { ...this.embedderConfig.pdfParser, model: this.embedderConfig.pdfParser.model ?? "", params: this.embedderConfig.pdfParser.params ?? {} }
             : { api: "none", endpoint: "", apiKey: "", model: "", params: {} };
-        return new Ingester(store, embedder, { chunking: this.embedderConfig.chunking, pdfParser }, this.knowledgePath, { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs }, { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs }, { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video });
+        const ingester = new Ingester(store, embedder, { chunking: this.embedderConfig.chunking, pdfParser }, this.knowledgePath, { endpoint: this._videoConfig.endpoint, apiKey: this._videoConfig.apiKey, maxFrames: this._videoConfig.maxFrames, timeoutMs: this._videoConfig.timeoutMs }, { endpoint: this._imageConfig.endpoint, apiKey: this._imageConfig.apiKey, timeoutMs: this._imageConfig.timeoutMs }, { imageMethod: this._embeddingMethod.image, videoMethod: this._embeddingMethod.video });
+        ingester.setVlmProvider(this._vlmProvider);
+        return ingester;
     }
     // -------------------------------------------------------------------------
     // KB CRUD

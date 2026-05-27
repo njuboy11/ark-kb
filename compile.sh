@@ -23,6 +23,14 @@ def lock_js():
 def main():
     unlock_js()
     result = subprocess.run(['npx', 'tsc'] + sys.argv[1:], cwd=PKG_DIR)
+    if result.returncode == 0:
+        # Copy UI files to dist
+        os.makedirs(os.path.join(PKG_DIR, 'web', 'ui'), exist_ok=True)
+        src_ui = os.path.join(PKG_DIR, 'src', 'web', 'ui', 'index.html')
+        dst_ui = os.path.join(PKG_DIR, 'web', 'ui', 'index.html')
+        if os.path.exists(src_ui):
+            import shutil
+            shutil.copy2(src_ui, dst_ui)
     lock_js()
     sys.exit(result.returncode)
 

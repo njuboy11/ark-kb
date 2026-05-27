@@ -3,6 +3,7 @@
  * ffmpeg frame extraction + tiling → MiniMax VLM → text summary → embedding
  * Also supports multimodal mode: extract key frames for direct multimodal embedding.
  */
+import type { ResolvedProvider } from "./providers/config.js";
 export interface VideoInfo {
     duration: number;
     width: number;
@@ -42,4 +43,5 @@ export declare function summarizeImage(imagePath: string, config: {
     endpoint: string;
     timeoutMs: number;
 }): Promise<string>;
+export declare function describeImageWithProvider(provider: ResolvedProvider, imageBase64: string, prompt?: string): Promise<string>;
 //# sourceMappingURL=video.d.ts.map

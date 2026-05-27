@@ -9,7 +9,7 @@ import { extname, basename, join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { exec } from "node:child_process";
 import { exposeMediaFile, cleanupExposedMedia } from "./embedder.js";
-import { summarizeVideo, summarizeImage } from "./video.js";
+import { summarizeVideo, summarizeImage, describeImageWithProvider } from "./video.js";
 import { dirname } from "node:path";
 // ============================================================================
 // File type detection
@@ -824,14 +824,23 @@ async function processImage(filePath, embedder, opts) {
     const now = Date.now();
     const method = opts?.method ?? "text";
     // Text mode: VLM summary → text embedding
-    if (method === "text" && opts?.imageConfig?.apiKey) {
+    if (method === "text" && (opts?.imageConfig?.apiKey || opts?.vlmProvider)) {
         console.log(`[Ark KB] Image text mode: summarizing ${base} via VLM…`);
         try {
-            const summary = await summarizeImage(filePath, {
-                apiKey: opts.imageConfig.apiKey,
-                endpoint: opts.imageConfig.endpoint,
-                timeoutMs: opts.imageConfig.timeoutMs ?? 60000
-            });
+            let summary;
+            if (opts.vlmProvider) {
+                const { readFile } = await import("node:fs/promises");
+                const imgBuf = await readFile(filePath);
+                const imgB64 = imgBuf.toString("base64");
+                summary = await describeImageWithProvider(opts.vlmProvider, imgB64);
+            }
+            else {
+                summary = await summarizeImage(filePath, {
+                    apiKey: opts.imageConfig.apiKey,
+                    endpoint: opts.imageConfig.endpoint,
+                    timeoutMs: opts.imageConfig.timeoutMs ?? 60000
+                });
+            }
             const chunks = chunkText(summary, { maxTokens: 400, overlapTokens: 50, strategy: "paragraph" });
             if (chunks.length === 0)
                 chunks.push(summary);
@@ -1023,6 +1032,7 @@ export class Ingester {
     imageConfig = { endpoint: "", apiKey: "", timeoutMs: 60_000 };
     imageMethod = "text";
     videoMethod = "text";
+    vlmProvider = null;
     knowledgePath = "";
     /** Per-file mutex: prevents TOCTOU races when the same file is ingested concurrently. */
     _ingestLocks = new Map();
@@ -1041,6 +1051,10 @@ export class Ingester {
             this.imageMethod = modes.imageMethod ?? "text";
             this.videoMethod = modes.videoMethod ?? "text";
         }
+    }
+    /** Set VLM provider for summarization (new multi-provider system). */
+    setVlmProvider(p) {
+        this.vlmProvider = p;
     }
     /**
      * Ingest a single file: detect type → hash → chunk → embed → upsert.
@@ -1101,7 +1115,8 @@ export class Ingester {
                         case "image":
                             entries = await processImage(filePath, this.embedder, {
                                 imageConfig: this.imageConfig,
-                                method: this.imageMethod
+                                method: this.imageMethod,
+                                vlmProvider: this.vlmProvider,
                             });
                             break;
                         case "video":

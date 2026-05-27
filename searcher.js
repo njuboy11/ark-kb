@@ -5,6 +5,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { exposeMediaFile } from "./embedder.js";
+import { rerank } from "./providers/reranker/index.js";
 /** Safely parse images field (already array or JSON string). */
 function safeParseImages(val) {
     if (Array.isArray(val))
@@ -18,47 +19,12 @@ function safeParseImages(val) {
         return [];
     }
 }
-const RERANKER_PRESETS = {
-    siliconflow: {
-        "BAAI/bge-reranker-v2-m3": {
-            endpoint: "https://api.siliconflow.cn/v1/rerank",
-            model: "BAAI/bge-reranker-v2-m3",
-            minScore: 0.35,
-        },
-        "Qwen/Qwen3-Reranker-8B": {
-            endpoint: "https://api.siliconflow.cn/v1/rerank",
-            model: "Qwen/Qwen3-Reranker-8B",
-            minScore: 0.1,
-        },
-        "Qwen/Qwen3-VL-Reranker-8B": {
-            endpoint: "https://api.siliconflow.cn/v1/rerank",
-            model: "Qwen/Qwen3-VL-Reranker-8B",
-            minScore: 0.1,
-        },
-    },
-    cohere: {
-        "rerank-multilingual-v3.0": {
-            endpoint: "https://api.cohere.ai/v1/rerank",
-            model: "rerank-multilingual-v3.0",
-            minScore: 0.35,
-        },
-    },
-};
-function resolveRerankerEndpoint(api, model, userEndpoint) {
-    if (userEndpoint)
-        return userEndpoint;
-    return RERANKER_PRESETS[api]?.[model]?.endpoint ?? "";
+// ---- Fallback endpoints (no model-specific presets) ----
+function resolveRerankerEndpoint(api, _model, userEndpoint) {
+    return userEndpoint || "";
 }
-function resolveRerankerModel(api, model, userModel) {
-    const preset = RERANKER_PRESETS[api]?.[model];
-    if (preset)
-        return preset.model;
-    return userModel ?? model;
-}
-function resolveRerankerMinScore(api, model, userMinScore) {
-    if (userMinScore !== undefined)
-        return userMinScore;
-    return RERANKER_PRESETS[api]?.[model]?.minScore ?? 0.35;
+function resolveRerankerMinScore(api, _model, userMinScore) {
+    return userMinScore ?? 0.35;
 }
 // ============================================================================
 // Searcher
@@ -177,6 +143,23 @@ export class Searcher {
     async applyReranker(results, query, minScore) {
         if (results.length === 0)
             return [];
+        // Provider-based reranking (new multi-provider system)
+        const rp = this.config.providers?.reranker;
+        if (rp) {
+            try {
+                const documents = results.map(r => r.entry.chunk_text);
+                const scored = await rerank(rp, query, documents);
+                return scored
+                    .filter(r => r.score >= minScore)
+                    .map(r => ({ ...results[r.index], score: r.score }))
+                    .sort((a, b) => b.score - a.score);
+            }
+            catch (err) {
+                console.warn("[Ark KB] Provider reranker failed: " + err.message + ", falling back to legacy");
+                // Fall through to legacy reranker
+            }
+        }
+        // Legacy reranker (hardcoded SiliconFlow / Cohere / custom)
         const rc = this.config.reranker;
         // Split: media results need a multimodal reranker, text results use cheap text reranker
         // BUT config.method overrides: "text" mode sends media to text reranker (VLM summary in chunk_text)
@@ -226,7 +209,7 @@ export class Searcher {
         if (results.length === 0)
             return [];
         const endpoint = resolveRerankerEndpoint(api, model, userEndpoint);
-        const resolvedModel = resolveRerankerModel(api, model);
+        const resolvedModel = model;
         try {
             // Build document list: text → chunk_text, image/video → HTTPS URL
             const documents = [];
