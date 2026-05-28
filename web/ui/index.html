@@ -120,11 +120,10 @@ body{font-family:var(--font);font-size:14px;color:var(--text);background:var(--b
 
 /* ── Center chat panel ── */
 .kb-chat{
-  flex:1;min-width:0;
+  width:0;min-width:0;max-width:calc(100% - 220px);flex:1;
   display:flex;flex-direction:column;
   overflow:hidden;
   background:var(--bg2);
-  position:relative;
 }
 .kb-msgs{
   flex:1;overflow-y:auto;padding:16px 20px;
@@ -229,43 +228,13 @@ body{font-family:var(--font);font-size:14px;color:var(--text);background:var(--b
   30%{transform:translateY(-4px);opacity:1}
 }
 
-/* ── Sources toggle button (floating) ── */
-.kb-sources-toggle{
-  position:absolute;top:10px;right:14px;
-  z-index:20;
-  display:none;align-items:center;gap:5px;
-  padding:5px 12px;border-radius:20px;
-  background:#ffffff;border:1px solid var(--border);
-  font-family:var(--font);font-size:12px;font-weight:500;color:var(--text2);
-  cursor:pointer;box-shadow:0 2px 8px rgba(27,31,36,0.10);
-  transition:all 0.15s;
-}
-.kb-sources-toggle:hover{
-  border-color:var(--indigo);color:var(--indigo);
-  box-shadow:0 2px 12px rgba(99,102,241,0.18);
-}
-.kb-sources-toggle .badge{
-  background:var(--indigo);color:#fff;
-  border-radius:10px;padding:1px 6px;
-  font-size:10px;font-weight:700;line-height:1.4;
-}
-
-/* ── Floating sources card ── */
-.kb-sources-card{
-  position:absolute;top:0;right:0;
-  width:240px;height:100%;
-  background:var(--bg);
+/* ── Right sources panel ── */
+.kb-sources{
+  width:220px;flex-shrink:0;
   border-left:1px solid var(--border);
   display:flex;flex-direction:column;
-  z-index:15;
-  box-shadow:-4px 0 16px rgba(27,31,36,0.06);
-  transform:translateX(0);
-  transition:transform 0.25s ease,opacity 0.25s ease;
-}
-.kb-sources-card.hidden{
-  transform:translateX(100%);
-  opacity:0;
-  pointer-events:none;
+  overflow:hidden;
+  background:var(--bg);
 }
 .kb-sources-hdr{
   padding:10px 12px 8px;
@@ -278,13 +247,6 @@ body{font-family:var(--font);font-size:14px;color:var(--text);background:var(--b
   transition:background 0.2s;
 }
 .kb-sources-hdr .dot.active{background:var(--green)}
-.kb-sources-close{
-  margin-left:auto;background:0;border:0;
-  cursor:pointer;color:var(--text3);font-size:14px;
-  padding:2px 6px;border-radius:4px;
-  transition:all 0.12s;line-height:1;
-}
-.kb-sources-close:hover{color:var(--text);background:rgba(27,31,36,0.06)}
 .kb-sources-list{
   flex:1;overflow-y:auto;padding:8px 10px;
   display:flex;flex-direction:column;gap:4px;
@@ -301,7 +263,8 @@ body{font-family:var(--font);font-size:14px;color:var(--text);background:var(--b
 }
 .kb-source-item:hover{background:rgba(27,31,36,0.04)}
 .kb-source-item.active{
-  border-color:var(--border);background:var(--bg2);
+  border-color:var(--border);
+  background:var(--bg2);
 }
 .kb-source-icon{font-size:12px;flex-shrink:0}
 .kb-source-name{
@@ -413,27 +376,9 @@ body{font-family:var(--font);font-size:14px;color:var(--text);background:var(--b
 
       <!-- Center: chat -->
       <div class="kb-chat">
-        <!-- Floating toggle button -->
-        <button class="kb-sources-toggle" id="sourcesToggle" onclick="toggleSourcesCard()">
-          📑 相关文件 <span class="badge" id="sourcesBadge" style="display:none">0</span>
-        </button>
-
-        <!-- Floating sources card -->
-        <div class="kb-sources-card hidden" id="kbSourcesCard">
-          <div class="kb-sources-hdr">
-            <span class="dot" id="sourcesDot"></span>
-            <span>📑 相关文件</span>
-            <button class="kb-sources-close" onclick="hideSourcesCard()">×</button>
-          </div>
-          <div class="kb-sources-list" id="sourcesList"></div>
-        </div>
-
-        <!-- Messages -->
         <div class="kb-msgs">
           <div class="kb-msgs-inner" id="messages"></div>
         </div>
-
-        <!-- Input -->
         <div class="kb-input-area">
           <div class="kb-input-card">
             <textarea class="kb-input" id="chatInput" rows="1" placeholder="问任何关于知识库的问题…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"></textarea>
@@ -441,6 +386,17 @@ body{font-family:var(--font);font-size:14px;color:var(--text);background:var(--b
           </div>
         </div>
       </div>
+
+      <!-- Right: sources -->
+      <aside class="kb-sources">
+        <div class="kb-sources-hdr">
+          <span class="dot" id="sourcesDot"></span>
+          <span>📑 相关文件</span>
+        </div>
+        <div class="kb-sources-list" id="sourcesList">
+          <div class="kb-sources-empty">暂无相关文件</div>
+        </div>
+      </aside>
     </div>
 
     <!-- Config -->
@@ -480,7 +436,7 @@ body{font-family:var(--font);font-size:14px;color:var(--text);background:var(--b
 </div>
 
 <script>
-let currentKB="all",kbs=[],currentSources=[],sourcesVisible=false;
+let currentKB="all",kbs=[];
 
 function switchTab(t){
   document.querySelectorAll('.tab-pill').forEach(a=>a.classList.remove('active'));
@@ -586,9 +542,9 @@ async function sendMessage(){
       <div class="msg-avatar ai">AK</div>
       <div class="msg-content">
         <div class="msg-bubble">${d.answer.replace(/\n/g,"<br>")}`;
-    // Update floating sources card
-    currentSources = d.sources || [];
-    showSources(currentSources);
+    if(d.sources?.length){
+      html+=`<div class="msg-sources">${[...new Set(d.sources.map(s=>s.file))].map(f=>`<a href="/api/kb/${encodeURIComponent(targetKB())}/files/${encodeURIComponent(f)}" target="_blank" class="msg-source">${h(f)}</a>`).join("")}</div>`;
+    }
     html+=`</div><div class="msg-time">${ts()}</div></div></div>`;
     msgs.innerHTML+=html;
   }catch(e){
@@ -635,54 +591,6 @@ const fd=document.getElementById("fileDrop");
 fd.addEventListener("dragover",e=>{e.preventDefault();fd.classList.add("dragover")});
 fd.addEventListener("dragleave",()=>fd.classList.remove("dragover"));
 fd.addEventListener("drop",e=>{e.preventDefault();fd.classList.remove("dragover");uploadFiles(e.dataTransfer.files)});
-
-// ── Sources card ──
-function showSources(sources){
-  const card=document.getElementById("kbSourcesCard");
-  const toggle=document.getElementById("sourcesToggle");
-  const badge=document.getElementById("sourcesBadge");
-  const list=document.getElementById("sourcesList");
-  if(!sources?.length){
-    toggle.style.display="none";
-    card.classList.add("hidden");
-    sourcesVisible=false;
-    return;
-  }
-  // Unique files
-  const unique={};
-  sources.forEach(s=>{ if(!unique[s.file]) unique[s.file]=s; });
-  const files=Object.values(unique);
-  // Update badge
-  badge.textContent=files.length;
-  badge.style.display="inline";
-  // Show toggle
-  toggle.style.display="flex";
-  // Render list
-  list.innerHTML=files.map(f=>`<div class="kb-source-item">
-    <span class="kb-source-icon">📄</span>
-    <span class="kb-source-name" title="${h(f.file)}">${h(f.file)}</span>
-    <span class="kb-source-score">${((f.score||0)*100).toFixed(0)}%</span>
-  </div>`).join("");
-  // Auto-open the card
-  card.classList.remove("hidden");
-  sourcesVisible=true;
-}
-
-function hideSourcesCard(){
-  document.getElementById("kbSourcesCard").classList.add("hidden");
-  sourcesVisible=false;
-}
-
-function toggleSourcesCard(){
-  const card=document.getElementById("kbSourcesCard");
-  if(card.classList.contains("hidden")){
-    card.classList.remove("hidden");
-    sourcesVisible=true;
-  } else {
-    card.classList.add("hidden");
-    sourcesVisible=false;
-  }
-}
 
 loadKBs().then(()=>loadFiles());
 </script>
