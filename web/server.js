@@ -20,9 +20,10 @@ catch {
     return {};
 } }
 let _ctx = null;
-const logLines = [];
-export function startWebServer(ctx) {
+let _logLines = [];
+export function startWebServer(ctx, logLines) {
     _ctx = ctx;
+    _logLines = logLines ?? [];
     setupRoutes();
     createServer(handleRequest).listen(PORT, () => console.log(`[Ark KB Web] http://localhost:${PORT}`));
 }
@@ -94,7 +95,7 @@ function setupRoutes() {
         json(res, { error: e.message }, 500);
     } });
     // Logs
-    route("GET", "/api/logs", async (req, res) => { const url = new URL(req.url, "http://localhost"); const limit = parseInt(url.searchParams.get("limit") || "200"); json(res, logLines.slice(-limit).reverse()); });
+    route("GET", "/api/logs", async (req, res) => { const url = new URL(req.url, "http://localhost"); const limit = parseInt(url.searchParams.get("limit") || "200"); json(res, _logLines.slice(-limit).reverse()); });
     // Chat
     route("POST", "/api/chat", async (req, res) => {
         try {

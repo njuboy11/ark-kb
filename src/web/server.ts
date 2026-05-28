@@ -22,10 +22,11 @@ async function readBody(req: IncomingMessage) { return new Promise<string>(r => 
 async function parseBody(req: IncomingMessage) { try { return JSON.parse(await readBody(req)); } catch { return {}; } }
 
 let _ctx: any = null;
-const logLines: string[] = [];
+let _logLines: string[] = [];
 
-export function startWebServer(ctx: { kbManager: any; config: any; searcher: any }) {
+export function startWebServer(ctx: { kbManager: any; config: any; searcher: any }, logLines?: string[]) {
   _ctx = ctx;
+  _logLines = logLines ?? [];
   setupRoutes();
   createServer(handleRequest).listen(PORT, () => console.log(`[Ark KB Web] http://localhost:${PORT}`));
 }
@@ -46,7 +47,7 @@ function setupRoutes() {
   route("PUT","/api/config",async(req,res)=>{ try { Object.assign(_ctx.config, await parseBody(req)); json(res,{ok:true}); } catch(e:any){ json(res,{error:e.message},500); } });
 
   // Logs
-  route("GET","/api/logs",async(req,res)=>{ const url=new URL(req.url!,"http://localhost"); const limit=parseInt(url.searchParams.get("limit")||"200"); json(res, logLines.slice(-limit).reverse()); });
+  route("GET","/api/logs",async(req,res)=>{ const url=new URL(req.url!,"http://localhost"); const limit=parseInt(url.searchParams.get("limit")||"200"); json(res, _logLines.slice(-limit).reverse()); });
 
   // Chat
   route("POST","/api/chat",async(req,res)=>{ try { const {message,kbName}=await parseBody(req); if(!message) return json(res,{error:"Missing message"},400);

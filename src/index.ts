@@ -255,7 +255,7 @@ export class ArkKB {
         kbManager: this.kbManager,
         config: this.config,
         searcher: this
-      });
+      }, webLogLines);
     } catch (e: any) {
       console.warn(`[Ark KB] Web UI server failed to start: ${e.message}`);
     }
