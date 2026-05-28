@@ -5,5 +5,5 @@ export declare function startWebServer(ctx: {
     kbManager: any;
     config: any;
     searcher: any;
-}): void;
+}, logLines?: string[]): void;
 //# sourceMappingURL=server.d.ts.map
