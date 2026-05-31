@@ -87,7 +87,7 @@ async function main() {
     // CLI mode: skip email ingester initialization
     const cliConfig = { ...fileResult.config, emailIngester: { ...(fileResult.config.emailIngester ?? {}), enabled: false } };
     const core = new ArkKB(cliConfig);
-    await core.init();
+    await core.init(null, { skipWebServer: true });
     // Shared --kb option
     const kbName = args.kb;
     try {

@@ -144,7 +144,7 @@ export class ArkKB {
     // -------------------------------------------------------------------------
     // Init
     // -------------------------------------------------------------------------
-    async init(api) {
+    async init(api, opts = {}) {
         if (this._initialized)
             return;
         try {
@@ -215,16 +215,18 @@ export class ArkKB {
         // Initialize email auto-ingester (api param only used in plugin mode)
         await this._initEmailIngester(api);
         console.log(`[Ark KB] Ready — ${total} chunks, ${files} files`);
-        // Start Web UI server
-        try {
-            startWebServer({
-                kbManager: this.kbManager,
-                config: this.config,
-                searcher: this
-            }, webLogLines);
-        }
-        catch (e) {
-            console.warn(`[Ark KB] Web UI server failed to start: ${e.message}`);
+        // Start Web UI server (skip in CLI mode)
+        if (!opts.skipWebServer) {
+            try {
+                startWebServer({
+                    kbManager: this.kbManager,
+                    config: this.config,
+                    searcher: this
+                }, webLogLines);
+            }
+            catch (e) {
+                console.warn(`[Ark KB] Web UI server failed to start: ${e.message}`);
+            }
         }
         // Start auto-compact scheduler
         this._startAutoCompact();

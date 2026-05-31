@@ -25,7 +25,15 @@ export function startWebServer(ctx, logLines) {
     _ctx = ctx;
     _logLines = logLines ?? [];
     setupRoutes();
-    createServer(handleRequest).listen(PORT, () => console.log(`[Ark KB Web] http://localhost:${PORT}`));
+    const server = createServer(handleRequest);
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.warn(`[Ark KB Web] Port ${PORT} already in use (OpenClaw plugin running) — skipping`);
+        } else {
+            console.warn(`[Ark KB Web] Server error: ${err.message}`);
+        }
+    });
+    server.listen(PORT, () => console.log(`[Ark KB Web] http://localhost:${PORT}`));
 }
 function setupRoutes() {
     // KB
